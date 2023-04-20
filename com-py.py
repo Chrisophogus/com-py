@@ -79,28 +79,27 @@ print(f'Panorama saved to {output_path}')
 print(f'Time taken: {end_time - start_time:.2f} seconds')
 
 # Open the panorama image
-panorama_img = Image.open(output_path)
+#panorama_img = Image.open(output_path)
 
 # Get the center of the image
-center_x = int(panorama_img.width / 2)
-center_y = panorama_img.height
+#center_x = int(panorama_img.width / 2)
+#center_y = panorama_img.height
 
 # Define the radius of the circle
-radius = int(panorama_img.width / 2)
+#radius = int(panorama_img.width / 2)
 
 # Create a new image for the circle
-circle_img = Image.new('RGBA', panorama_img.size, (255, 255, 255, 0))
+#circle_img = Image.new('RGBA', panorama_img.size, (255, 255, 255, 0))
 
 # Draw the circle on the new image
-draw = ImageDraw.Draw(circle_img)
-draw.ellipse((center_x - radius, center_y - radius, center_x + radius, center_y + radius), fill=(255, 255, 255, 255))
+#draw = ImageDraw.Draw(circle_img)
+#draw.ellipse((center_x - radius, center_y - radius, center_x + radius, center_y + radius), fill=(255, 255, 255, 255))
 
 # Paste the panorama onto the circle image with alpha mask
-circle_img.paste(panorama_img, (0, 0), panorama_img)
+#circle_img.paste(panorama_img, (0, 0), panorama_img)
 
 # Save the circle image
-output_circle_path = os.path.splitext(video_path)[0] + '-pan-circle.png'
-circle_img.save(output_circle_path)
+#output_circle_path = os.path.splitext(video_path)[0] + '-pan-circle.png'
+#circle_img.save(output_circle_path)
 
-print(f'Circle panorama saved to {output_circle_path}')
-
+#print(f'Circle panorama saved to {output_circle_path}')
