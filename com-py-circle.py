@@ -1,29 +1,39 @@
-from PIL import Image, ImageDraw, ImageOps
-import math
+from PIL import Image, ImageDraw, ImageFilter
+import numpy as np
+import os
 
-# Load the panorama image
-panorama = Image.open('duggee.jpg')
+# Set up parameters for the circle image
+video_path = '/Users/Chris/Documents/github/com-py/Portals.mp4'
+processed_dir = '/Users/Chris/Documents/github/com-py/processing/Portals'
+output_path = os.path.splitext(video_path)[0] + '-circle.png'
 
-# Calculate the size of the circular image
-diameter = min(panorama.size)
-diameter = diameter - diameter % 2  # ensure diameter is an even number
+width, height = Image.open(os.path.join(processed_dir, '000001.png')).size
+size = (width, height)
+center_x = int(width / 2)
+center_y = int(height / 2)
+radius = 3
 
-# Extract a strip of pixels from the far left of the panorama
-left_strip = panorama.crop((0, 0, int(diameter/2), panorama.size[1]))
+# Create a new image for the circle
+circle_img = Image.new('RGBA', size, (255, 255, 255, 0))
 
-# Append the left strip to the right side of the panorama until the right side becomes the outside edge of the circle
-while panorama.size[0] < diameter:
-    panorama = ImageOps.expand(panorama, border=1, fill='black')
-    panorama.paste(left_strip, (panorama.size[0]-left_strip.size[0], 0))
+# Draw the circle on the new image
+draw = ImageDraw.Draw(circle_img)
+draw.ellipse((center_x - radius, center_y - radius, center_x + radius, center_y + radius), fill=(255, 255, 255, 255))
 
-# Create a circular mask with a black background and a white circle in the center
-mask = Image.new('L', (diameter, diameter), 0)
-draw = ImageDraw.Draw(mask)
-draw.ellipse((0, 0, diameter, diameter), fill=255)
+# Set up the output image
+output_img = Image.new('RGBA', size, (0, 0, 0, 0))
 
-# Resize and paste the panorama image onto the mask
-panorama = panorama.resize((diameter, diameter))
-panorama.putalpha(mask)
+# Paste each stripe onto the output image with increasing distance from the center
+for i in range(1, len(os.listdir(processed_dir))+1):
+    stripe_path = os.path.join(processed_dir, f'{i:06d}.png')
+    stripe = Image.open(stripe_path)
+    angle = (i-1) / (len(os.listdir(processed_dir))-1) * 2 * np.pi
+    x = int(center_x + radius * i * np.cos(angle))
+    y = int(center_y + radius * i * np.sin(angle))
+    output_img.paste(stripe, (x, y))
 
-# Save the circular version of the original panorama image
-panorama.save('panorama_circle.png')
+# Paste the circle image onto the output image
+output_img.paste(circle_img, (center_x - radius, center_y - radius))
+
+# Save the output image
+output_img.save(output_path)

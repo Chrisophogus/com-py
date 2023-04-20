@@ -1,11 +1,11 @@
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 import cv2
 import os
 import time
 
 # Replace the path below with the path to your movie file
-video_path = '/Users/Chris/Documents/github/com-py/Portals.mp4'
+video_path = '/Users/Chris/Documents/github/com-py/duggee.mkv'
 
 # Create a VideoCapture object and get the frames per second of the video
 cap = cv2.VideoCapture(video_path)
@@ -18,6 +18,12 @@ num_frames = None
 avg_colors = []
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+# Set up directory to store processed frames
+filename = os.path.splitext(os.path.basename(video_path))[0]
+processed_dir = os.path.join('./processing', filename)
+if not os.path.exists(processed_dir):
+    os.makedirs(processed_dir)
 
 # Process each frame in the video
 frame_count = 0
@@ -35,6 +41,10 @@ while cap.isOpened():
     avg_color = tuple(np.round(frame.mean(axis=(0,1))).astype(np.uint8))
     avg_colors.append(avg_color)
     
+    # Create a new image for the stripe and save it
+    stripe = Image.new('RGB', (1, height), color=avg_color)
+    stripe.save(os.path.join(processed_dir, f'{frame_count + 1:06d}.png'))
+    
     # Show progress
     frame_count += 1
     if num_frames is not None and frame_count >= num_frames:
@@ -45,7 +55,7 @@ while cap.isOpened():
 cap.release()
 
 # Create a new image to store the panorama
-panorama = Image.new('RGB', (len(avg_colors), height), color='black')
+panorama = Image.new('RGBA', (len(avg_colors), height), color=(0, 0, 0, 0))
 
 # Draw each stripe onto the panorama
 for x, color in enumerate(avg_colors):
@@ -60,10 +70,37 @@ if panorama.size[0] > 65500:
     panorama = panorama.resize((65500, new_height))
 
 # Save the panorama
-output_path = os.path.splitext(video_path)[0] + '-pan.jpg'
+output_path = os.path.splitext(video_path)[0] + '-pan.png'
 panorama.save(output_path)
 
 end_time = time.time()
 
 print(f'Panorama saved to {output_path}')
 print(f'Time taken: {end_time - start_time:.2f} seconds')
+
+# Open the panorama image
+panorama_img = Image.open(output_path)
+
+# Get the center of the image
+center_x = int(panorama_img.width / 2)
+center_y = panorama_img.height
+
+# Define the radius of the circle
+radius = int(panorama_img.width / 2)
+
+# Create a new image for the circle
+circle_img = Image.new('RGBA', panorama_img.size, (255, 255, 255, 0))
+
+# Draw the circle on the new image
+draw = ImageDraw.Draw(circle_img)
+draw.ellipse((center_x - radius, center_y - radius, center_x + radius, center_y + radius), fill=(255, 255, 255, 255))
+
+# Paste the panorama onto the circle image with alpha mask
+circle_img.paste(panorama_img, (0, 0), panorama_img)
+
+# Save the circle image
+output_circle_path = os.path.splitext(video_path)[0] + '-pan-circle.png'
+circle_img.save(output_circle_path)
+
+print(f'Circle panorama saved to {output_circle_path}')
+
