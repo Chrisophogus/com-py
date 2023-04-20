@@ -4,8 +4,8 @@ import cv2
 import os
 import time
 
-# Replace the path below with the path to your movie file
-video_path = '/Users/Chris/Documents/github/com-py/duggee.mkv'
+# Prompt the user for the path to the video file
+video_path = input("Enter the path to the video file: ")
 
 # Create a VideoCapture object and get the frames per second of the video
 cap = cv2.VideoCapture(video_path)
