@@ -1,12 +1,23 @@
 import cv2
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import os
+from tqdm import tqdm
 
 def extract_average_colours(video_path):
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Could not open video file: {video_path}")
+
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     average_colours = []
 
-    while True:
+    for _ in tqdm(range(frame_count), desc="Processing frames"):
         ret, frame = cap.read()
         if not ret:
             break
@@ -31,7 +42,7 @@ def create_circular_image(timeline_image):
     radius = height // 2
     circular_image = np.zeros((height, height, 3), dtype=np.uint8)
 
-    for i in range(height):
+    for i in tqdm(range(height), desc="Creating circular image"):
         for j in range(width):
             angle = 2 * np.pi * j / width
             x = int(radius + (i - radius) * np.cos(angle))
@@ -42,15 +53,13 @@ def create_circular_image(timeline_image):
     return circular_image
 
 # Main script
-video_path = 'path_to_your_video.mkv'  # Replace with your MKV file path
-average_colours = extract_average_colours(video_path)
+video_filename = 'your_video_file.mkv'  # Replace with your MKV file name
+average_colours = extract_average_colours(video_filename)
 timeline_image = create_timeline_image(average_colours)
 circular_image = create_circular_image(timeline_image)
 
-# Display the final circular image
-plt.imshow(cv2.cvtColor(circular_image, cv2.COLOR_BGR2RGB))
-plt.axis('off')
-plt.show()
+# Save the final circular image to a file
+output_filename = 'circular_colour_timeline.png'
+plt.imsave(output_filename, cv2.cvtColor(circular_image, cv2.COLOR_BGR2RGB))
 
-# Save the image if needed
-cv2.imwrite('circular_colour_timeline.png', circular_image)
+print(f"Circular colour timeline saved as {output_filename}")
