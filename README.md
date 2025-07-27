@@ -17,6 +17,8 @@ HDR content is tone-mapped to SDR during frame extraction using `ffmpeg`.
 
 ## 📁 Folder Structure
 
+<pre>
+project-root/
 ├── frames/
 │   └── Aliens (1986) - tt0090605/
 │       ├── frame_0001.jpg
@@ -32,6 +34,7 @@ HDR content is tone-mapped to SDR during frame extraction using `ffmpeg`.
 ├── requirements.txt
 ├── .gitignore
 └── README.md
+</pre>
 
 ## 🛠️ Setup
 
@@ -99,4 +102,4 @@ Below is an example of the outputs generated from:
 
 ## 📸 Inspired By
 
-Project concept inspired by [The Colours of Motion](https://thecoloursofmotion.com/), visualising the emotional palette of cinema.
+Project concept inspired by [The Colours of Motion](https://thecolorsofmotion.com/), visualising the emotional palette of cinema.
