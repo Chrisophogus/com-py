@@ -62,12 +62,12 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Ignore everything in frames and outputs...
+# Ignore everything in frames
 frames/*
-outputs/*
 
-# ...except the folders themselves
+
+# ...except the folder
 !frames/
-!outputs/
 
+#ignore archive
 archive/
