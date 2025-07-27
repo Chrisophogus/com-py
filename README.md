@@ -17,22 +17,21 @@ HDR content is tone-mapped to SDR during frame extraction using `ffmpeg`.
 
 ## 📁 Folder Structure
 
-.
-├── frames/                           # Temporary extracted frames (gitignored)
+├── frames/
 │   └── Aliens (1986) - tt0090605/
 │       ├── frame_0001.jpg
 │       ├── ...
 │       └── frame_0824.jpg
-├── outputs/                          # Final image outputs (committed)
+├── outputs/
 │   └── Aliens (1986) - tt0090605/
 │       ├── linear_output.png
 │       ├── vertical_output.png
 │       └── debug_output.png
-├── colours_of_motion_radial_.py              # Main script (frame extraction + image generation)
-├── processed_files.json              # Tracks processed videos to avoid reprocessing
-├── requirements.txt                  # Python dependencies (optional but recommended)
-├── .gitignore                        # Git ignore rules
-└── README.md                         # Project documentation
+├── colours_of_motion_radial_.py
+├── processed_files.json
+├── requirements.txt
+├── .gitignore
+└── README.md
 
 ## 🛠️ Setup
 
@@ -41,25 +40,30 @@ HDR content is tone-mapped to SDR during frame extraction using `ffmpeg`.
 Make sure `ffmpeg` is installed on your system. If you're on macOS:
 
 ```bash
-brew install ffmpeg```
+brew install ffmpeg
+```
 
 ### 2. Set up a Python virtual environment
 
 From the root of this project:
-
+```bash
 python3 -m venv .venv
 source .venv/bin/activate        # macOS/Linux
 pip install -r requirements.txt
+```
 
 ▶️ Usage
 
 Run the script and follow the prompts:
-
+```bash
 python colours_of_motion.py
+```
 
 You will be asked:
-	1.	The full path to the video file (e.g. /Volumes/Media/.../Aliens.mkv)
-	2.	A name to use for the output folder (e.g. Aliens (1986) - tt0090605)
+
+1.	The full path to the video file (e.g. /Volumes/Media/.../Aliens.mkv)
+
+2.	A name to use for the output folder (e.g. Aliens (1986) - tt0090605)
 
 If the video has already been processed, only the output visualisations will be regenerated.
 
@@ -77,22 +81,20 @@ Below is an example of the outputs generated from:
 
 **🎬 Aliens (1986) - Theatrical Cut**
 
-### Horizontal Bar
-
-![Horizontal Output](outputs/Aliens%20(1986)%20-%20tt0090605/linear_output.png)
-
-### Vertical Bar
-
-![Vertical Output](outputs/Aliens%20(1986)%20-%20tt0090605/vertical_output.png)
-
 ### Wave Pattern (Quarter Debug Style)
 
 ![Wave Pattern Output](outputs/Aliens%20(1986)%20-%20tt0090605/debug_output.png)
 
+### Horizontal Bar
+
+![Horizontal Output](outputs/Aliens%20(1986)%20-%20tt0090605/linear_output.png)
+
 ## 🧠 Notes
-	•	HDR sources are tone-mapped to SDR using Hable tonemapping and BT.709 output profile.
-	•	Frame extraction happens at 0.1 fps (~1 frame every 10 seconds).
-	•	Outputs are stored in /outputs/<your-folder-name>.
+•	HDR sources are tone-mapped to SDR using Hable tonemapping and BT.709 output profile
+
+•	Frame extraction happens at 0.1 fps (~1 frame every 10 seconds)
+
+•	Outputs are stored in /outputs/your-folder-name
 
 
 ## 📸 Inspired By
