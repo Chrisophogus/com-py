@@ -61,3 +61,13 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+
+# Ignore everything in frames and outputs...
+frames/*
+outputs/*
+
+# ...except the folders themselves
+!frames/
+!outputs/
+
+archive/
