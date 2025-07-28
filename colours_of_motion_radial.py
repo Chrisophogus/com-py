@@ -169,9 +169,9 @@ def main():
         save_processed(processed)
 
     # Step 3: Generate outputs
-    linear_out = os.path.join(output_dir, "linear_output.png")
-    vertical_out = os.path.join(output_dir, "vertical_output.png")
-    swirl_out = os.path.join(output_dir, "debug_output.png")
+    linear_out = os.path.join(output_dir, "linear.png")
+    vertical_out = os.path.join(output_dir, "vertical.png")
+    swirl_out = os.path.join(output_dir, "radial.png")
 
     build_horizontal_image(frame_dir, linear_out, STRIPE_WIDTH, LINE_HEIGHT)
     build_vertical_image(frame_dir, vertical_out, LINE_HEIGHT, STRIPE_WIDTH)
