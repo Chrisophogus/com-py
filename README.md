@@ -86,11 +86,11 @@ Below is an example of the outputs generated from:
 
 ### Wave Pattern (Quarter Debug Style)
 
-![Wave Pattern Output](outputs/Aliens%20(1986)%20-%20tt0090605/debug_output.png)
+![Wave Pattern Output](outputs/Aliens%20(1986)%20-%20tt0090605/radial.png)
 
 ### Horizontal Bar
 
-![Horizontal Output](outputs/Aliens%20(1986)%20-%20tt0090605/linear_output.png)
+![Horizontal Output](outputs/Aliens%20(1986)%20-%20tt0090605/linear.png)
 
 ## 🧠 Notes
 •	HDR sources are tone-mapped to SDR using Hable tonemapping and BT.709 output profile
