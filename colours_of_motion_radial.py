@@ -1,31 +1,26 @@
 import os
 import subprocess
 import json
-from PIL import Image, ImageDraw
+from PIL import Image
 import numpy as np
 import cv2
 
 # === CONFIGURATION ===
 FPS = 0.1
-LINE_HEIGHT = 100
-STRIPE_WIDTH = 4
-RESOLUTION = 3000
 PROCESSED_FILE = "processed_files.json"
 FRAME_ROOT = "frames"
 OUTPUT_ROOT = "outputs"
 
+# Poster mode defaults
+POSTER_RESOLUTION = 5000  # High-quality radial
+QUICK_RESOLUTION = 3000   # Fast preview
+
 # === FRAME EXTRACTION ===
 def extract_frames(video_path, frame_dir, fps=FPS):
-    """
-    Extracts HDR frames with tone mapping using ffmpeg.
-    """
+    """Extracts HDR frames with tone mapping using ffmpeg."""
     os.makedirs(frame_dir, exist_ok=True)
-
     cmd = [
-        "ffmpeg",
-        "-an",
-        "-sn",
-        "-i", video_path,
+        "ffmpeg", "-an", "-sn", "-i", video_path,
         "-vf", (
             f"fps={fps},"
             "zscale=t=linear:npl=100,"
@@ -35,102 +30,36 @@ def extract_frames(video_path, frame_dir, fps=FPS):
             "zscale=t=bt709,"
             "format=yuv420p"
         ),
-        "-q:v", "1",
-        "-vsync", "0",
-        "-frame_pts", "1",
-        "-fps_mode", "vfr",
-        "-loglevel", "warning",
-        "-hide_banner",
-        "-stats",
+        "-q:v", "1", "-vsync", "0", "-frame_pts", "1", "-fps_mode", "vfr",
+        "-loglevel", "warning", "-hide_banner", "-stats",
         os.path.join(frame_dir, "frame_%04d.jpg")
     ]
-
     print(f"[>] Extracting frames with tone mapping:\n{' '.join(cmd)}")
     subprocess.run(cmd, check=True)
     print("[✓] HDR tone-mapped frame extraction complete.")
 
-# === AVERAGE COLOUR ===
-def average_color(image_path):
-    img = Image.open(image_path).convert('RGB')
-    np_img = np.array(img)
-    avg = np_img.mean(axis=(0, 1))
-    return tuple(avg.astype(int))
-
-# === IMAGE BUILDERS ===
-def build_horizontal_image(frame_dir, output_path, stripe_width=4, line_height=100):
-    colours = []
-    for file in sorted(os.listdir(frame_dir)):
-        if file.lower().endswith(('.jpg', '.jpeg', '.png')):
-            try:
-                colours.append(average_color(os.path.join(frame_dir, file)))
-            except Exception as e:
-                print(f"[!] Skipping {file}: {e}")
-
-    if not colours:
-        raise ValueError("No valid images found.")
-
-    width = len(colours) * stripe_width
-    image = Image.new("RGB", (width, line_height))
-    draw = ImageDraw.Draw(image)
-
-    for i, color in enumerate(colours):
-        x = i * stripe_width
-        draw.rectangle([x, 0, x + stripe_width, line_height], fill=color)
-
-    image.save(output_path)
-    print(f"[✓] Saved horizontal bar image: {output_path}")
-
-def build_vertical_image(frame_dir, output_path, stripe_height=100, stripe_width=4):
-    colours = []
-    for file in sorted(os.listdir(frame_dir)):
-        if file.lower().endswith(('.jpg', '.jpeg', '.png')):
-            try:
-                colours.append(average_color(os.path.join(frame_dir, file)))
-            except Exception as e:
-                print(f"[!] Skipping {file}: {e}")
-
-    if not colours:
-        raise ValueError("No valid images found.")
-
-    height = len(colours) * stripe_height
-    image = Image.new("RGB", (stripe_width, height))
-    draw = ImageDraw.Draw(image)
-
-    for i, color in enumerate(colours):
-        y = i * stripe_height
-        draw.rectangle([0, y, stripe_width, y + stripe_height], fill=color)
-
-    image.save(output_path)
-    print(f"[✓] Saved vertical bar image: {output_path}")
-
-def linear_to_wave_pattern_debug(image_path, output_path, resolution=3000):
-    """
-    Creates a radial swirl image using a simple polar transformation.
-    """
+# === RADIAL IMAGE BUILDER ===
+def build_radial_image(image_path, output_path, resolution=3000):
+    print("[>] Building radial image...")
     src = cv2.imread(image_path)
     if src is None:
         raise ValueError(f"Could not read image: {image_path}")
 
-    print(f"Debug: Source shape = {src.shape}")
-
     result = np.zeros((resolution, resolution, 3), dtype=np.uint8)
-    for y in range(resolution):
-        for x in range(resolution):
-            dx = x
-            dy = y
-            distance = np.sqrt(dx * dx + dy * dy)
+    for y_pos in range(resolution):
+        for x_pos in range(resolution):
+            distance = np.sqrt(x_pos * x_pos + y_pos * y_pos)
             max_dist = np.sqrt(resolution**2 + resolution**2)
             norm_dist = distance / max_dist
-
             if norm_dist <= 1.0:
                 src_x = int(norm_dist * (src.shape[1] - 1))
                 src_y = src.shape[0] // 2
-                result[y, x] = src[src_y, src_x]
+                result[y_pos, x_pos] = src[src_y, src_x]
             else:
-                result[y, x] = [50, 50, 50]
+                result[y_pos, x_pos] = [50, 50, 50]
 
     cv2.imwrite(output_path, result)
-    print(f"[✓] Saved swirl debug image: {output_path}")
+    print(f"[✓] Saved radial image: {output_path}")
 
 # === TRACKING PROCESSED FILES ===
 def load_processed():
@@ -145,22 +74,31 @@ def save_processed(data):
 
 # === MAIN ===
 def main():
-    # Step 1: Get inputs
-    video_path = input("Enter full path to video file: ").strip()
-    if not os.path.exists(video_path):
-        print("[✗] Video not found.")
-        return
+    processed = load_processed()
+    if processed:
+        last_video, last_folder = list(processed.items())[-1]
+        reuse = input(f"Reuse last video? ({last_video}) [y/n]: ").strip().lower()
+    else:
+        reuse = "n"
 
-    folder_name = input("Enter folder name (e.g. 'Aliens (1986) - tt0090605'): ").strip()
+    if reuse == "y":
+        video_path = last_video
+        folder_name = last_folder
+    else:
+        video_path = input("Enter full path to video file: ").strip()
+        if not os.path.exists(video_path):
+            print("[✗] Video not found.")
+            return
+        folder_name = input("Enter folder name (e.g. 'Aliens (1986) - tt0090605'): ").strip()
+
     frame_dir = os.path.join(FRAME_ROOT, folder_name)
     output_dir = os.path.join(OUTPUT_ROOT, folder_name)
-
     os.makedirs(output_dir, exist_ok=True)
 
-    # Step 2: Check processed
-    processed = load_processed()
-    already_processed = processed.get(video_path) == folder_name
+    poster_mode = input("Run in poster mode? (y/n): ").strip().lower() == "y"
+    resolution = POSTER_RESOLUTION if poster_mode else QUICK_RESOLUTION
 
+    already_processed = processed.get(video_path) == folder_name
     if already_processed:
         print("[!] Video previously processed – skipping frame extraction.")
     else:
@@ -168,14 +106,15 @@ def main():
         processed[video_path] = folder_name
         save_processed(processed)
 
-    # Step 3: Generate outputs
-    linear_out = os.path.join(output_dir, "linear.png")
-    vertical_out = os.path.join(output_dir, "vertical.png")
-    swirl_out = os.path.join(output_dir, "radial.png")
+    # Use horizontal file (existing from other script) or fallback to first frame
+    horizontal_path = os.path.join(output_dir, "linear_hq.png")
+    if not os.path.exists(horizontal_path):
+        print("[!] No horizontal image found. Using first frame as source.")
+        first_frame = sorted(os.listdir(frame_dir))[0]
+        horizontal_path = os.path.join(frame_dir, first_frame)
 
-    build_horizontal_image(frame_dir, linear_out, STRIPE_WIDTH, LINE_HEIGHT)
-    build_vertical_image(frame_dir, vertical_out, LINE_HEIGHT, STRIPE_WIDTH)
-    linear_to_wave_pattern_debug(linear_out, swirl_out, RESOLUTION)
+    radial_out = os.path.join(output_dir, "radial_hq.png")
+    build_radial_image(horizontal_path, radial_out, resolution)
 
 if __name__ == "__main__":
     main()
