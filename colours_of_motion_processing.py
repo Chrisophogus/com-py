@@ -5,20 +5,21 @@ from PIL import Image
 import numpy as np
 
 # === CONFIGURATION ===
-FPS = 0.1  # frames per second for sampling
-FRAME_ROOT = "frames"
+FPS_STANDARD = 0.1   # 1 frame every 10 seconds
+FPS_CIRCLE = 1       # 1 frame every second
+STRIP_HEIGHT = 100   # Height of 1px-wide strips
 PROCESSED_FILE = "processed_files.json"
+FRAME_ROOT = "frames"
+CIRCLE_ROOT = "circle_data"
 
-
-# === FRAME EXTRACTION ===
-def extract_frames(video_path, frame_dir, fps=FPS):
-    """Extracts HDR frames with tone mapping using ffmpeg."""
-    os.makedirs(frame_dir, exist_ok=True)
+# === FRAME EXTRACTION (STANDARD MODE) ===
+def extract_frames(video_path, output_dir, fps):
+    """Extract full frames using ffmpeg with HDR tone mapping."""
+    os.makedirs(output_dir, exist_ok=True)
     cmd = [
-        "ffmpeg",
-        "-an",
-        "-sn",
+        "ffmpeg", "-an", "-sn",
         "-i", video_path,
+        "-map", "0:v",
         "-vf", (
             f"fps={fps},"
             "zscale=t=linear:npl=100,"
@@ -28,120 +29,125 @@ def extract_frames(video_path, frame_dir, fps=FPS):
             "zscale=t=bt709,"
             "format=yuv420p"
         ),
-        "-q:v", "1",
-        "-vsync", "0",
-        "-frame_pts", "1",
-        "-fps_mode", "vfr",
-        "-loglevel", "warning",
-        "-hide_banner",
-        "-stats",
-        os.path.join(frame_dir, "frame_%04d.jpg")
+        "-q:v", "1", "-fps_mode", "vfr",
+        "-loglevel", "warning", "-hide_banner", "-stats",
+        os.path.join(output_dir, "frame_%04d.jpg")
     ]
-
-    print(f"[>] Extracting frames:\n{' '.join(cmd)}")
+    print(f"[>] Extracting frames (standard): {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
     print("[✓] Frame extraction complete.")
 
-
-# === AVERAGE COLOR ===
-def average_color(image_path):
-    """Calculates average RGB color for an image."""
+# === METADATA (Standard mode) ===
+def calculate_frame_data(image_path):
     img = Image.open(image_path).convert('RGB')
-    np_img = np.array(img)
-    avg = np_img.mean(axis=(0, 1))
-    return [int(c) for c in avg]  # Convert np.int64 to int
+    np_img = np.array(img, dtype=np.float32)
+    avg_color = np_img.mean(axis=(0, 1))
+    brightness = (0.299 * avg_color[0]) + (0.587 * avg_color[1]) + (0.114 * avg_color[2])
+    max_c, min_c = np.max(avg_color), np.min(avg_color)
+    saturation = (max_c - min_c) / (max_c + 1e-5)
+    return {
+        "frame": os.path.basename(image_path),
+        "color": [int(avg_color[0]), int(avg_color[1]), int(avg_color[2])],
+        "brightness": float(brightness),
+        "saturation": float(saturation)
+    }
 
-
-# === PROCESS METADATA ===
-def process_frames(frame_dir):
-    """Generates metadata for all frames."""
-    print("[>] Processing frame metadata...")
-    frame_files = sorted([
-        f for f in os.listdir(frame_dir)
-        if f.lower().endswith(('.jpg', '.jpeg', '.png'))
-    ])
-
-    metadata = []
-    for i, file in enumerate(frame_files):
-        path = os.path.join(frame_dir, file)
-        color = average_color(path)
-        metadata.append({
-            "file": file,
-            "average_color": color
-        })
-
-        if i % 100 == 0 and i != 0:
-            print(f"  Processed {i} frames...")
-
-    print(f"[✓] Processed {len(metadata)} frames")
-    return metadata
-
-
-# === SAVE METADATA ===
 def save_metadata(metadata, frame_dir):
-    """Saves metadata to a JSON file inside frame directory."""
-    out_path = os.path.join(frame_dir, "data.json")
-    with open(out_path, "w") as f:
+    output_file = os.path.join(frame_dir, "data.json")
+    with open(output_file, 'w') as f:
         json.dump(metadata, f, indent=2)
-    print(f"[✓] Saved metadata to {out_path}")
+    print(f"[✓] Metadata saved to {output_file}")
 
+# === CIRCLE MODE EXTRACTION (Direct HDR Tone-Mapped Strips) ===
+def extract_circle_strips(video_path, output_dir, fps=1, strip_height=100):
+    """Extract 1px-wide tone-mapped strips directly using ffmpeg."""
+    os.makedirs(output_dir, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-an", "-sn",
+        "-i", video_path,
+        "-map", "0:v",
+        "-vf", (
+            f"fps={fps},"
+            "zscale=t=linear:npl=100,"
+            "format=gbrpf32le,"
+            "zscale=p=bt709,"
+            "tonemap=hable,"
+            "zscale=t=bt709,"
+            "format=yuv420p,"
+            f"scale=1:{strip_height}"
+        ),
+        "-q:v", "1", "-fps_mode", "vfr",
+        "-loglevel", "warning", "-hide_banner", "-stats",
+        os.path.join(output_dir, "strip_%04d.png")
+    ]
+    print(f"[>] Extracting 1px strips (circle mode): {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+    print("[✓] 1px strips extraction complete.")
 
-# === TRACK PROCESSED FILES ===
+# === TRACKING PROCESSED FILES ===
 def load_processed():
     if os.path.exists(PROCESSED_FILE):
         with open(PROCESSED_FILE, 'r') as f:
             return json.load(f)
     return {}
 
-def save_processed(video_path, folder_name):
-    data = {
-        "last_video": {
-            "path": video_path,
-            "folder": folder_name
-        }
-    }
+def save_processed(data):
     with open(PROCESSED_FILE, 'w') as f:
         json.dump(data, f, indent=2)
-
 
 # === MAIN ===
 def main():
     processed = load_processed()
+    reuse = "n"
+    video_path = ""
+    folder_name = ""
 
-    # Reuse last video if available
+    # Reuse last video
     if "last_video" in processed:
-        last_video = processed["last_video"]["path"]
-        last_folder = processed["last_video"]["folder"]
-        reuse = input(f"Reuse last video? ({last_video}) [y/n]: ").strip().lower()
-    else:
-        reuse = "n"
+        video_path = processed["last_video"]["path"]
+        folder_name = processed["last_video"]["folder"]
+        reuse = input(f"Reuse last video? ({video_path}) [y/n]: ").strip().lower()
 
-    if reuse == "y":
-        video_path = last_video
-        folder_name = last_folder
-    else:
+    if reuse != "y":
         video_path = input("Enter full path to video file: ").strip()
         if not os.path.exists(video_path):
             print("[✗] Video not found.")
             return
         folder_name = input("Enter folder name (e.g. 'Aliens (1986) - tt0090605'): ").strip()
 
-    frame_dir = os.path.join(FRAME_ROOT, folder_name)
-    os.makedirs(frame_dir, exist_ok=True)
+    # Choose mode
+    mode = input("Choose mode: [1] Standard (radial/vertical) [2] Circle (donut poster): ").strip()
+    mode = "2" if mode == "2" else "1"
 
-    # Only extract frames if new video or folder is empty
-    if not reuse or not os.listdir(frame_dir):
-        extract_frames(video_path, frame_dir, FPS)
+    if mode == "1":
+        frame_dir = os.path.join(FRAME_ROOT, folder_name)
+        os.makedirs(frame_dir, exist_ok=True)
+        if processed.get("last_video", {}).get("folder") == folder_name and os.listdir(frame_dir):
+            print("[!] Video previously processed – skipping extraction.")
+        else:
+            extract_frames(video_path, frame_dir, FPS_STANDARD)
+        print("[>] Processing metadata...")
+        metadata = []
+        for i, file in enumerate(sorted(os.listdir(frame_dir)), 1):
+            if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                data = calculate_frame_data(os.path.join(frame_dir, file))
+                metadata.append(data)
+                if i % 100 == 0:
+                    print(f"  Processed {i} frames...")
+        save_metadata(metadata, frame_dir)
 
-    # Save processed file info
-    save_processed(video_path, folder_name)
+    else:
+        circle_dir = os.path.join(CIRCLE_ROOT, folder_name)
+        os.makedirs(circle_dir, exist_ok=True)
+        if os.listdir(circle_dir):
+            print("[!] Circle data already processed – skipping extraction.")
+        else:
+            extract_circle_strips(video_path, circle_dir, FPS_CIRCLE, STRIP_HEIGHT)
 
-    # Build metadata
-    metadata = process_frames(frame_dir)
-    save_metadata(metadata, frame_dir)
-
-    print("[✓] Processing complete. Frames and metadata are ready.")
-
+    # Save last video info
+    processed["last_video"] = {"path": video_path, "folder": folder_name}
+    save_processed(processed)
+    print("[✓] Processing complete.")
 
 if __name__ == "__main__":
     main()

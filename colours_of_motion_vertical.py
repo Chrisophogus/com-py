@@ -11,20 +11,17 @@ OUTPUT_ROOT = "outputs"
 POSTER_WIDTH = 3000
 POSTER_HEIGHT = 5000
 
-# Cinematic style tuning
-SIMILARITY_THRESHOLD = 25  # Lower = more scene splits
-BASE_STRIPE_HEIGHT = 5
-COLUMN_WIDTH_RATIO = 0.35  # Width of central band (percentage of canvas)
-FEATHER_RADIUS = 2         # Blur feathering
+# Cinematic tuning
+BASE_STRIPE_HEIGHT = 4        # height per frame
+MIN_WIDTH_RATIO = 0.2         # narrowest stripe = 20% of full width
+MAX_WIDTH_RATIO = 0.9         # widest stripe = 90% of full width
+FEATHER_RADIUS = 2            # blur amount
 
 # === UTILS ===
 def list_folders(base_path):
-    """Lists all subfolders in a directory."""
-    folders = [f for f in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, f))]
-    return sorted(folders)
+    return sorted([f for f in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, f))])
 
 def load_metadata(folder_path):
-    """Loads data.json from a processed frames folder."""
     data_file = os.path.join(folder_path, "data.json")
     if not os.path.exists(data_file):
         raise FileNotFoundError(f"No data.json found in {folder_path}")
@@ -34,7 +31,7 @@ def load_metadata(folder_path):
 # === CLASSIC VERTICAL ===
 def build_vertical_classic(metadata, output_path, target_width=1600, target_height=20000):
     print("[>] Building classic vertical image...")
-    colours = [frame["average_color"] for frame in metadata]
+    colours = [frame["color"] for frame in metadata]
     n_frames = len(colours)
     stripe_height = max(1, target_height // n_frames)
     actual_height = n_frames * stripe_height
@@ -50,39 +47,32 @@ def build_vertical_classic(metadata, output_path, target_width=1600, target_heig
     image.save(output_path, "PNG", optimize=False, compress_level=1)
     print(f"[✓] Saved classic vertical image: {output_path}")
 
-# === CINEMATIC VERTICAL ===
-def colour_distance(c1, c2):
-    return np.linalg.norm(np.array(c1) - np.array(c2))
-
+# === CINEMATIC VERTICAL (BRIGHTNESS-BASED WIDTH) ===
 def build_vertical_cinematic(metadata, output_path, target_width=POSTER_WIDTH, target_height=POSTER_HEIGHT):
-    print("[>] Building cinematic vertical image...")
-    colours = [frame["average_color"] for frame in metadata]
+    print("[>] Building cinematic brightness-based vertical image...")
 
-    # Group frames by colour similarity
-    grouped_colours = []
-    group_sizes = []
-    current_group = [colours[0]]
-    for c in colours[1:]:
-        if colour_distance(c, current_group[-1]) < SIMILARITY_THRESHOLD:
-            current_group.append(c)
-        else:
-            grouped_colours.append(np.mean(current_group, axis=0))
-            group_sizes.append(len(current_group))
-            current_group = [c]
-    grouped_colours.append(np.mean(current_group, axis=0))
-    group_sizes.append(len(current_group))
+    # Extract brightness values
+    brightness_values = [frame["brightness"] for frame in metadata]
+    min_b, max_b = min(brightness_values), max(brightness_values)
+    colours = [frame["color"] for frame in metadata]
+    n_frames = len(colours)
 
-    # Create canvas
+    # Fixed height per frame
+    stripe_height = max(1, target_height // n_frames)
+
+    # Create black canvas
     image = Image.new("RGB", (target_width, target_height), "black")
     draw = ImageDraw.Draw(image)
-    column_width = int(target_width * COLUMN_WIDTH_RATIO)
-    x1 = (target_width - column_width) // 2
-    x2 = x1 + column_width
 
-    # Draw variable height stripes
     y = 0
-    for colour, size in zip(grouped_colours, group_sizes):
-        stripe_height = BASE_STRIPE_HEIGHT * max(1, size // 2)
+    for colour, brightness in zip(colours, brightness_values):
+        # Map brightness to stripe width
+        norm_b = (brightness - min_b) / (max_b - min_b + 1e-5)
+        stripe_width = int(MIN_WIDTH_RATIO * target_width + norm_b * (MAX_WIDTH_RATIO - MIN_WIDTH_RATIO) * target_width)
+
+        x1 = (target_width - stripe_width) // 2
+        x2 = x1 + stripe_width
+
         draw.rectangle([x1, y, x2, y + stripe_height], fill=tuple(map(int, colour)))
         y += stripe_height
         if y >= target_height:
@@ -96,7 +86,6 @@ def build_vertical_cinematic(metadata, output_path, target_width=POSTER_WIDTH, t
 
 # === MAIN ===
 def main():
-    # List available processed folders
     folders = list_folders(FRAME_ROOT)
     if not folders:
         print("[✗] No processed frame folders found.")
@@ -119,7 +108,7 @@ def main():
 
     metadata = load_metadata(frame_dir)
 
-    # Build classic and cinematic verticals
+    # Build both styles
     classic_out = os.path.join(output_dir, "vertical_classic.png")
     cinematic_out = os.path.join(output_dir, "vertical_cinematic.png")
 
