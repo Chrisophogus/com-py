@@ -122,7 +122,11 @@ def main():
     if mode == "1":
         frame_dir = os.path.join(FRAME_ROOT, folder_name)
         os.makedirs(frame_dir, exist_ok=True)
-        if processed.get("last_video", {}).get("folder") == folder_name and os.listdir(frame_dir):
+        has_frames = any(
+            file.lower().endswith((".jpg", ".jpeg", ".png"))
+            for file in os.listdir(frame_dir)
+        )
+        if processed.get("last_video", {}).get("folder") == folder_name and has_frames:
             print("[!] Video previously processed – skipping extraction.")
         else:
             extract_frames(video_path, frame_dir, FPS_STANDARD)

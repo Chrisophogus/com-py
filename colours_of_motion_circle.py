@@ -2,9 +2,22 @@ import os
 import json
 import numpy as np
 from PIL import Image, ImageDraw
+import argparse
 
 FRAME_ROOT = "frames"
 OUTPUT_ROOT = "outputs"
+QUICK_RESOLUTION = 4000
+HQ_RESOLUTION = 6000
+SUPERSAMPLE = 2
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate full-circle Colours of Motion output.")
+    parser.add_argument(
+        "--poster_mode",
+        action="store_true",
+        help="Render higher-resolution, anti-aliased output.",
+    )
+    return parser.parse_args()
 
 def select_folder(root):
     """List available subfolders and let user select one."""
@@ -14,23 +27,40 @@ def select_folder(root):
         return None
     for i, folder in enumerate(folders, 1):
         print(f"{i}: {folder}")
-    choice = int(input("Select folder: ").strip()) - 1
-    return folders[choice]
+    choice = input("Select folder: ").strip()
+    if not choice.isdigit():
+        print("[✗] Invalid selection.")
+        return None
+    index = int(choice) - 1
+    if index < 0 or index >= len(folders):
+        print("[✗] Invalid selection.")
+        return None
+    return folders[index]
 
-def build_circle_image(metadata_path, output_path, resolution=6000, inner_radius_ratio=0.25):
+def build_circle_image(
+    metadata_path,
+    output_path,
+    resolution=HQ_RESOLUTION,
+    inner_radius_ratio=0.25,
+    supersample=SUPERSAMPLE,
+):
     """Create a full circular image based on frame colours."""
     with open(metadata_path, 'r') as f:
         data = json.load(f)
     
     colours = [tuple(frame["color"]) for frame in data]
     n_frames = len(colours)
+    if n_frames == 0:
+        print("[✗] Metadata is empty. Nothing to render.")
+        return
     print(f"[>] Building full circle with {n_frames} frames")
 
-    # Prepare blank image
-    img = Image.new("RGB", (resolution, resolution), "white")
+    render_size = max(1, int(resolution * supersample))
+    # Render larger then downsample for smoother edges.
+    img = Image.new("RGB", (render_size, render_size), "white")
     draw = ImageDraw.Draw(img)
-    center = resolution // 2
-    outer_radius = resolution // 2
+    center = render_size // 2
+    outer_radius = render_size // 2
     inner_radius = int(outer_radius * inner_radius_ratio)
 
     # Draw each slice
@@ -45,10 +75,14 @@ def build_circle_image(metadata_path, output_path, resolution=6000, inner_radius
     draw.ellipse([center - inner_radius, center - inner_radius,
                   center + inner_radius, center + inner_radius], fill="white")
 
+    if supersample > 1:
+        img = img.resize((resolution, resolution), Image.LANCZOS)
+
     img.save(output_path, "PNG", optimize=False, compress_level=1)
     print(f"[✓] Saved full circle image: {output_path}")
 
 def main():
+    args = parse_args()
     folder = select_folder(FRAME_ROOT)
     if not folder:
         return
@@ -62,7 +96,8 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "circle_full.png")
     
-    build_circle_image(metadata_path, output_path)
+    resolution = HQ_RESOLUTION if args.poster_mode else QUICK_RESOLUTION
+    build_circle_image(metadata_path, output_path, resolution=resolution)
 
 if __name__ == "__main__":
     main()
