@@ -759,12 +759,28 @@ def draw_poster(circle_img, output_path, palette, title, subtitle, meta_row, dot
         (strip_left, meta_strip_top, strip_right, strip_bottom),
         fill=palette["fg"],
     )
-    # Inset/carved effect: faint top highlight + bottom shadow.
-    edge_alpha = 46
-    top_edge = Image.new("RGBA", (strip_right - strip_left, 2), (255, 255, 255, edge_alpha))
-    bottom_edge = Image.new("RGBA", (strip_right - strip_left, 2), (0, 0, 0, edge_alpha))
-    img.paste(top_edge, (strip_left, meta_strip_top + 1), top_edge)
-    img.paste(bottom_edge, (strip_left, strip_bottom - 2), bottom_edge)
+    # Inset/carved effect: stronger bevel + inner shadow for clearer recess.
+    strip_w = strip_right - strip_left
+    strip_h = strip_bottom - meta_strip_top
+    bevel = Image.new("RGBA", (strip_w, strip_h), (0, 0, 0, 0))
+    bdraw = ImageDraw.Draw(bevel)
+
+    # Brighter top rim and darker bottom rim.
+    bdraw.rectangle((0, 0, strip_w - 1, 3), fill=(255, 255, 255, 110))
+    bdraw.rectangle((0, strip_h - 4, strip_w - 1, strip_h - 1), fill=(0, 0, 0, 135))
+
+    # Soft darkening towards center to imply carved depth.
+    for i in range(max(1, strip_h // 2)):
+        alpha = int(95 * (1 - (i / max(1, strip_h // 2))))
+        y = 4 + i
+        if y < strip_h - 4:
+            bdraw.line((0, y, strip_w - 1, y), fill=(0, 0, 0, alpha))
+
+    # Side walls for a channel-like inset.
+    bdraw.rectangle((0, 0, 3, strip_h - 1), fill=(0, 0, 0, 95))
+    bdraw.rectangle((strip_w - 4, 0, strip_w - 1, strip_h - 1), fill=(0, 0, 0, 95))
+    bevel = bevel.filter(ImageFilter.GaussianBlur(radius=0.8))
+    img.paste(bevel, (strip_left, meta_strip_top), bevel)
     meta = meta_row
     meta_font = get_font(int(width * 0.017), bold=False)
     for i, item in enumerate(meta):
