@@ -75,3 +75,6 @@ archive/
 # Local environment config
 .env
 .env.local
+
+# Runtime logs
+logs/
