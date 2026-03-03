@@ -1,0 +1,2 @@
+{"ts_utc": "2026-03-03T16:00:14.565251+00:00", "event": "request", "payload": {"path": "/find/tt0090605", "params": {"external_source": "imdb_id", "language": "en-GB"}, "url_no_secret": "https://api.themoviedb.org/3/find/tt0090605", "auth_mode": "bearer"}}
+{"ts_utc": "2026-03-03T16:00:14.586571+00:00", "event": "error", "payload": {"path": "/find/tt0090605", "params": {"external_source": "imdb_id", "language": "en-GB"}, "error": "<urlopen error [Errno 8] nodename nor servname provided, or not known>"}}

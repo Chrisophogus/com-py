@@ -103,6 +103,7 @@ LEGACY_ALIEN_SUMMARY = (
 )
 DEFAULT_HEADLINE = "UNTITLED"
 DEFAULT_SUMMARY = ""
+SCHEMA_VERSION = 2
 
 
 def load_dotenv(path=".env"):
@@ -294,8 +295,10 @@ def build_metadata_from_tmdb(hint, details):
     aspect = f"{float(aspect_value):.2f}:1" if isinstance(aspect_value, (int, float)) and aspect_value else "2.20:1"
 
     title = details.get("title") or hint.get("title") or "UNTITLED"
-    summary = details.get("overview") or ""
-    headline = details.get("tagline") or title or DEFAULT_HEADLINE
+    tagline = details.get("tagline") or ""
+    overview = details.get("overview") or ""
+    headline = tagline or title or DEFAULT_HEADLINE
+    summary = overview
     genres = details.get("genres") or []
     category = "DOCUMENTARY" if any((g.get("name") or "").lower() == "documentary" for g in genres) else "MOTION PICTURE"
 
@@ -305,12 +308,15 @@ def build_metadata_from_tmdb(hint, details):
         "imdb_id": (details.get("external_ids") or {}).get("imdb_id") or hint.get("imdb_id"),
         "title": title,
         "year": hint.get("year"),
+        "schema_version": SCHEMA_VERSION,
         "release_date": release_date_raw,
         "runtime_min": runtime,
         "aspect_ratio": aspect,
         "production_category": category,
         "project_resolution": "FILM PROJECT",
         "color_profile": "COLOUR",
+        "tagline": tagline,
+        "overview": overview,
         "headline": headline,
         "summary": summary,
     }
@@ -324,15 +330,54 @@ def build_fallback_metadata(hint):
         "imdb_id": hint.get("imdb_id"),
         "title": fallback_title,
         "year": hint.get("year"),
+        "schema_version": SCHEMA_VERSION,
         "release_date": None,
         "runtime_min": None,
         "aspect_ratio": "2.20:1",
         "production_category": "MOTION PICTURE",
         "project_resolution": "FILM PROJECT",
         "color_profile": "COLOUR",
+        "tagline": "",
+        "overview": "",
         "headline": fallback_title.upper(),
         "summary": "",
     }
+
+
+def normalize_metadata_entry(entry, hint):
+    metadata = dict(entry or {})
+    title = metadata.get("title") or hint.get("title") or "UNTITLED"
+    tagline = metadata.get("tagline")
+    overview = metadata.get("overview")
+    headline = metadata.get("headline")
+    summary = metadata.get("summary")
+
+    if tagline is None:
+        tagline = ""
+    if overview is None:
+        overview = ""
+    if headline is None or str(headline).strip() == "":
+        headline = tagline or title or DEFAULT_HEADLINE
+    if summary is None:
+        summary = overview
+
+    metadata.setdefault("source", "local")
+    metadata.setdefault("tmdb_id", None)
+    metadata.setdefault("imdb_id", hint.get("imdb_id"))
+    metadata["title"] = title
+    metadata.setdefault("year", hint.get("year"))
+    metadata.setdefault("release_date", None)
+    metadata.setdefault("runtime_min", None)
+    metadata.setdefault("aspect_ratio", "2.20:1")
+    metadata.setdefault("production_category", "MOTION PICTURE")
+    metadata.setdefault("project_resolution", "FILM PROJECT")
+    metadata.setdefault("color_profile", "COLOUR")
+    metadata["tagline"] = tagline
+    metadata["overview"] = overview
+    metadata["headline"] = headline
+    metadata["summary"] = summary
+    metadata["schema_version"] = SCHEMA_VERSION
+    return metadata
 
 
 def generate_meta_row(metadata):
@@ -406,8 +451,22 @@ def resolve_metadata(args, input_path):
             # Backward compatibility with old single-film metadata files.
             catalog = {"films": {film_key: loaded}}
 
-    if not args.refresh_metadata and film_key in catalog.get("films", {}):
-        existing = sanitize_mixed_legacy_copy(catalog["films"][film_key], film_key)
+    # Migrate all stored entries to explicit schema fields.
+    films = catalog.get("films", {})
+    for key, entry in list(films.items()):
+        hint_for_entry = {
+            "title": entry.get("title"),
+            "year": entry.get("year"),
+            "imdb_id": entry.get("imdb_id") or key,
+            "folder": key,
+        }
+        films[key] = normalize_metadata_entry(entry, hint_for_entry)
+
+    existing = catalog.get("films", {}).get(film_key)
+
+    if not args.refresh_metadata and existing is not None:
+        existing = sanitize_mixed_legacy_copy(existing, film_key)
+        existing = normalize_metadata_entry(existing, hint)
         catalog["films"][film_key] = existing
         with metadata_path.open("w", encoding="utf-8") as f:
             json.dump(catalog, f, indent=2, ensure_ascii=True)
@@ -428,16 +487,23 @@ def resolve_metadata(args, input_path):
             if details:
                 metadata = build_metadata_from_tmdb(hint, details)
         except Exception as exc:
-            print(f"[!] TMDB lookup failed, using local fallback metadata: {exc}")
+            if existing is not None:
+                print(f"[!] TMDB lookup failed, keeping existing metadata for {film_key}: {exc}")
+                metadata = normalize_metadata_entry(existing, hint)
+            else:
+                print(f"[!] TMDB lookup failed, using local fallback metadata: {exc}")
     else:
         tmdb_log(
             tmdb_log_path,
             "skipped",
             {"reason": "missing_tmdb_credentials", "film_key": film_key},
         )
+        if existing is not None:
+            metadata = normalize_metadata_entry(existing, hint)
 
     if metadata is None:
         metadata = build_fallback_metadata(hint)
+    metadata = normalize_metadata_entry(metadata, hint)
 
     catalog.setdefault("films", {})
     catalog["films"][film_key] = metadata
