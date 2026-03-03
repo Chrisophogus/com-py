@@ -3,6 +3,7 @@ import json
 import math
 import os
 import re
+import sys
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -38,6 +39,7 @@ DOTSTRIP_RADIUS_RATIO = 0.0022
 DOTSTRIP_GAP_MULT = 2.8
 DOTSTRIP_PADDING_PX = 6
 DOTSTRIP_EXTRA_DX_PX = 4.0
+TOP_META_STRIP_HEIGHT_RATIO = 0.055
 
 
 def parse_args():
@@ -746,20 +748,46 @@ def draw_poster(circle_img, output_path, palette, title, subtitle, meta_row, dot
     inner_bottom = height - frame - int(height * 0.07)
     content_w = right - left
 
-    # Top metadata row.
+    # Top metadata row with inverted strip.
     meta_y = inner_top
+    meta_strip_h = int(height * TOP_META_STRIP_HEIGHT_RATIO)
+    meta_strip_top = meta_y - int(meta_strip_h * 0.36)
+    strip_left = frame + border
+    strip_right = width - frame - border
+    strip_bottom = meta_strip_top + meta_strip_h
+    draw.rectangle(
+        (strip_left, meta_strip_top, strip_right, strip_bottom),
+        fill=palette["fg"],
+    )
+    # Inset/carved effect: faint top highlight + bottom shadow.
+    edge_alpha = 46
+    top_edge = Image.new("RGBA", (strip_right - strip_left, 2), (255, 255, 255, edge_alpha))
+    bottom_edge = Image.new("RGBA", (strip_right - strip_left, 2), (0, 0, 0, edge_alpha))
+    img.paste(top_edge, (strip_left, meta_strip_top + 1), top_edge)
+    img.paste(bottom_edge, (strip_left, strip_bottom - 2), bottom_edge)
     meta = meta_row
     meta_font = get_font(int(width * 0.017), bold=False)
     for i, item in enumerate(meta):
         x = left + int((content_w / (len(meta) - 1)) * i)
         bb = draw.textbbox((0, 0), item, font=meta_font)
-        draw.text((x - (bb[2] - bb[0]) / 2, meta_y), item, fill=palette["muted"], font=meta_font)
+        draw.text((x - (bb[2] - bb[0]) / 2, meta_y), item, fill=palette["bg"], font=meta_font)
 
     # Circle placement.
     circle_d = int(width * 0.65)
     ring = ring_from_circle(circle_img, circle_d)
     cx = width // 2 - circle_d // 2
     cy = inner_top + int(height * 0.07)
+
+    # Subtle drop shadow to lift the donut from the paper.
+    shadow_alpha = ring.split()[-1]
+    shadow = Image.new("RGBA", ring.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.bitmap((0, 0), shadow_alpha, fill=(0, 0, 0, 64))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=max(4, int(width * 0.004))))
+    shadow_dx = int(width * 0.004)
+    shadow_dy = int(height * 0.006)
+    img.paste(shadow, (cx + shadow_dx, cy + shadow_dy), shadow)
+
     img.paste(ring, (cx, cy), ring)
 
     # Title block.
@@ -772,6 +800,19 @@ def draw_poster(circle_img, output_path, palette, title, subtitle, meta_row, dot
     strip_h = int(height * 0.03)
     strip_y = inner_bottom - strip_h
     strip = sample_ring_strip(circle_img, content_w, strip_h)
+
+    # Matching subtle drop shadow for the bottom strip.
+    strip_shadow = Image.new("RGBA", strip.size, (0, 0, 0, 0))
+    strip_shadow_draw = ImageDraw.Draw(strip_shadow)
+    strip_shadow_draw.rectangle(
+        (0, 0, strip.width - 1, strip.height - 1),
+        fill=(0, 0, 0, 58),
+    )
+    strip_shadow = strip_shadow.filter(ImageFilter.GaussianBlur(radius=max(3, int(width * 0.0022))))
+    strip_shadow_dx = int(width * 0.002)
+    strip_shadow_dy = int(height * 0.0035)
+    img.paste(strip_shadow, (left + strip_shadow_dx, strip_y + strip_shadow_dy), strip_shadow)
+
     img.paste(strip, (left, strip_y))
 
     # Dot strip is anchored above the bottom color bar.
@@ -854,6 +895,27 @@ def output_paths(input_path, output_path, theme):
     ]
 
 
+def choose_headline_text(metadata, title_override=None):
+    if title_override:
+        return title_override
+
+    title_text = str(metadata.get("title") or DEFAULT_HEADLINE).strip()
+    tagline_text = str(metadata.get("tagline") or "").strip()
+    if not tagline_text:
+        return title_text
+
+    if not sys.stdin.isatty():
+        return tagline_text
+
+    print(f"[?] Headline source for '{title_text}':")
+    print("    1) Tagline")
+    print("    2) Title")
+    choice = input("    Select [1/2] (default 1): ").strip().lower()
+    if choice in {"2", "title", "t"}:
+        return title_text
+    return tagline_text
+
+
 def main():
     args = parse_args()
     load_dotenv()
@@ -901,7 +963,7 @@ def main():
     row_gap = max(6.0, args.height * DOTSTRIP_ROW_GAP_RATIO)
 
     circle = Image.open(input_path).convert("RGB")
-    headline = (args.title or metadata.get("headline") or metadata.get("title") or DEFAULT_HEADLINE).upper()
+    headline = choose_headline_text(metadata, title_override=args.title).upper()
     summary = args.subtitle or metadata.get("summary") or DEFAULT_SUMMARY
     meta_row = generate_meta_row(metadata)
 
