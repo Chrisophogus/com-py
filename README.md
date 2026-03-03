@@ -1,105 +1,196 @@
-# 🎞 Colours of Motion Generator
+# Colours of Motion + Ozonelab Poster Pipeline
 
-This project extracts frames from a video file at regular intervals, computes the average colour for each frame, and creates visualisations of the movie’s colour palette.
+This project builds film colour visualisations from extracted frames, then composes print-style posters using a circular colour fingerprint plus TMDB-enriched metadata.
 
-## 🛠 How It Works
+## What It Produces
 
-1. Frames are extracted from a video file (default every 10 seconds).
-2. Average colour is computed for each frame.
-3. Visual summaries are generated in 3 styles:
-   - **Horizontal bar**: Colours stacked left to right.
-   - **Vertical bar**: Colours stacked top to bottom.
-   - **Wave pattern**: A quarter-section radial swirl using a sine-based wave distortion.
+For each film folder, the pipeline can generate:
 
-HDR content is tone-mapped to SDR during frame extraction using `ffmpeg`.
+- `vertical_classic.png`
+- `vertical_cinematic.png`
+- `linear_hq.png`
+- `radial_hq.png`
+- `circle_full.png`
+- `circle_donut_poster.png` (only if `circle_data/<film>/strip_*.png` exists)
+- `circle_full_ozonelab_light.png`
+- `circle_full_ozonelab_dark.png`
+- `dotstrip_light.png`
+- `dotstrip_dark.png`
 
----
+## Current Scripts
 
-## 📁 Folder Structure
+- `colours_of_motion_processing.py`
+  - interactive source processing (frame extraction + metadata / strip extraction)
+- `colours_of_motion_radial.py`
+  - builds `linear_hq.png` and `radial_hq.png`
+- `colours_of_motion_vertical.py`
+  - builds `vertical_classic.png` and `vertical_cinematic.png`
+- `colours_of_motion_circle.py`
+  - builds `circle_full.png` from `frames/<film>/data.json`
+- `colours_of_motion_donut.py`
+  - builds `circle_donut_poster.png` from `circle_data/<film>/strip_*.png`
+- `ozonelab_style.py`
+  - builds final light/dark posters with TMDB-backed metadata and encoded dot strips
 
-<pre>
-project-root/
-├── frames/
-│   └── Aliens (1986) - tt0090605/
-│       ├── frame_0001.jpg
-│       ├── ...
-│       └── frame_0824.jpg
-├── outputs/
-│   └── Aliens (1986) - tt0090605/
-│       ├── linear_output.png
-│       ├── vertical_output.png
-│       └── debug_output.png
-├── colours_of_motion_radial_.py
-├── processed_files.json
-├── requirements.txt
-├── .gitignore
-└── README.md
-</pre>
+## Project Layout
 
-## 🛠️ Setup
+```text
+com-py/
+├── frames/<film>/                # frame_*.jpg + data.json
+├── circle_data/<film>/           # strip_*.png for donut generation
+├── outputs/<film>/               # all rendered assets
+├── metadata/poster_metadata.json # shared metadata catalog for all films
+├── logs/tmdb_run_*.jsonl         # per-run TMDB request/response logs
+├── .env                          # local secrets (ignored)
+└── *.py                          # generation scripts
+```
 
-### 1. Install ffmpeg (via Homebrew)
+## Setup
 
-Make sure `ffmpeg` is installed on your system. If you're on macOS:
+### 1) Dependencies
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install pillow numpy opencv-python
+```
+
+Install `ffmpeg` (required for extraction scripts):
 
 ```bash
 brew install ffmpeg
 ```
 
-### 2. Set up a Python virtual environment
+### 2) Environment Variables
 
-From the root of this project:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate        # macOS/Linux
-pip install -r requirements.txt
+Create `.env`:
+
+```env
+TMDB_API_KEY=
+TMDB_READ_ACCESS_TOKEN=your_tmdb_read_access_token
 ```
 
-▶️ Usage
+Either `TMDB_API_KEY` (v3 key) or `TMDB_READ_ACCESS_TOKEN` (v4 bearer token) is supported.
 
-Run the script and follow the prompts:
+## Typical Workflow
+
+### A) Generate base visual assets
+
+Run the generation scripts (interactive):
+
 ```bash
-python colours_of_motion.py
+.venv/bin/python colours_of_motion_processing.py
+.venv/bin/python colours_of_motion_vertical.py --poster_mode
+.venv/bin/python colours_of_motion_radial.py --poster_mode
+.venv/bin/python colours_of_motion_circle.py --poster_mode
+.venv/bin/python colours_of_motion_donut.py --poster_mode
 ```
 
-You will be asked:
+### B) Refresh shared metadata only (no image rendering)
 
-1.	The full path to the video file (e.g. /Volumes/Media/.../Aliens.mkv)
+```bash
+.venv/bin/python ozonelab_style.py --input "outputs/Aliens (1986) - tt0090605/circle_full.png" --refresh-metadata --metadata-only
+```
 
-2.	A name to use for the output folder (e.g. Aliens (1986) - tt0090605)
+### C) Render final Ozonelab posters
 
-If the video has already been processed, only the output visualisations will be regenerated.
+```bash
+.venv/bin/python ozonelab_style.py --input "outputs/Aliens (1986) - tt0090605/circle_full.png" --theme both
+```
 
-## 📌 Notes
+## Ozonelab Metadata Model
 
-- Outputs are saved to `outputs/<foldername>/`.
-- Frame data is not committed, only final images.
-- Uses `ffmpeg`, `Pillow`, `OpenCV`, and `numpy`.
+Stored in `metadata/poster_metadata.json` as a shared catalog:
 
----
+```json
+{
+  "films": {
+    "tt0090605": {
+      "source": "tmdb|local",
+      "schema_version": 2,
+      "tmdb_id": 679,
+      "imdb_id": "tt0090605",
+      "title": "Aliens",
+      "year": 1986,
+      "release_date": "1986-08-29T00:00:00.000Z",
+      "runtime_min": 137,
+      "aspect_ratio": "2.20:1",
+      "production_category": "MOTION PICTURE",
+      "project_resolution": "FILM PROJECT",
+      "color_profile": "COLOUR",
+      "tagline": "This time it's war.",
+      "overview": "....",
+      "headline": "This time it's war.",
+      "summary": "...."
+    }
+  }
+}
+```
 
-## 📂 Output Example
+Notes:
 
-Below is an example of the outputs generated from:
+- `tagline` and `overview` are explicit TMDB fields.
+- `headline` and `summary` are the render fields used in posters.
+- Release date is formatted UK-style in output (`DD.MM.YYYY`).
+- Refresh failures preserve existing metadata (no destructive fallback overwrite).
 
-**🎬 Aliens (1986) - Theatrical Cut**
+## Dot Numbering Strip (Encoded Binary)
 
-### Wave Pattern (Quarter Debug Style)
+`ozonelab_style.py` replaces the previous decorative dots with an encoded two-row dot strip:
 
-![Wave Pattern Output](outputs/Aliens%20(1986)%20-%20tt0090605/radial.png)
+- `A = frames_processed` (actual frames used)
+- `B = runtime_seconds` (`runtime_min * 60`, or `0` if runtime missing)
 
-### Horizontal Bar
+Bit rendering:
 
-![Horizontal Output](outputs/Aliens%20(1986)%20-%20tt0090605/linear.png)
+- `1` -> top row dot
+- `0` -> bottom row dot
+- MSB -> LSB, left to right
+- stream format:
+  - `[lenA:8][A bits] | [lenB:8][B bits]`
+  - `|` is a wider horizontal gap
 
-## 🧠 Notes
-•	HDR sources are tone-mapped to SDR using Hable tonemapping and BT.709 output profile
+Theme assets:
 
-•	Frame extraction happens at 0.1 fps (~1 frame every 10 seconds)
+- `dotstrip_light.png` (black dots on transparent)
+- `dotstrip_dark.png` (white dots on transparent)
 
-•	Outputs are stored in /outputs/your-folder-name
+## TMDB Logging
 
+Every run writes a per-run log:
 
-## 📸 Inspired By
+- `logs/tmdb_run_<timestamp>.jsonl`
 
-Project concept inspired by [The Colours of Motion](https://thecolorsofmotion.com/), visualising the emotional palette of cinema.
+Log entries include:
+
+- request path + params (sanitized)
+- auth mode (`api_key` or `bearer`)
+- full response payload on success
+- structured HTTP / network errors
+
+## Troubleshooting
+
+- `nodename nor servname provided, or not known`
+  - DNS/network resolution issue to `api.themoviedb.org`, not a rate-limit error.
+- Missing runtime/release/tagline/summary in metadata
+  - run `--refresh-metadata --metadata-only` in a terminal with internet access.
+
+## Example Outputs
+
+### Aliens (1986) poster variants
+
+- Light:
+  ![Aliens light](outputs/Aliens%20(1986)%20-%20tt0090605/circle_full_ozonelab_light.png)
+- Dark:
+  ![Aliens dark](outputs/Aliens%20(1986)%20-%20tt0090605/circle_full_ozonelab_dark.png)
+
+### Base visual assets (Aliens)
+
+- ![Linear](outputs/Aliens%20(1986)%20-%20tt0090605/linear_hq.png)
+- ![Radial](outputs/Aliens%20(1986)%20-%20tt0090605/radial_hq.png)
+- ![Circle Full](outputs/Aliens%20(1986)%20-%20tt0090605/circle_full.png)
+- ![Vertical Cinematic](outputs/Aliens%20(1986)%20-%20tt0090605/vertical_cinematic.png)
+
+## Attribution
+
+Concept inspired by [The Colours of Motion](https://thecolorsofmotion.com/).
