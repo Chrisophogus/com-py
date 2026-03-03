@@ -71,3 +71,7 @@ frames/*
 
 #ignore archive
 archive/
+
+# Local environment config
+.env
+.env.local

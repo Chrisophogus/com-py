@@ -2,17 +2,28 @@ import os
 import cv2
 import numpy as np
 from PIL import Image
+import argparse
 
 # === CONFIGURATION ===
 CIRCLE_ROOT = "circle_data"
 OUTPUT_ROOT = "outputs"
-RESOLUTION = 6000  # Final image size (square)
+QUICK_RESOLUTION = 4000
+HQ_RESOLUTION = 6000
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate donut poster Colours of Motion output.")
+    parser.add_argument(
+        "--poster_mode",
+        action="store_true",
+        help="Render higher-resolution donut poster.",
+    )
+    return parser.parse_args()
 
 def list_movie_folders(base_dir):
     """List available processed movie folders."""
     return [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
 
-def build_donut_poster(input_dir, output_path, resolution=6000):
+def build_donut_poster(input_dir, output_path, resolution=HQ_RESOLUTION):
     """Builds a full circle 'donut poster' from 1px strips."""
     print(f"[>] Building donut poster from {input_dir}")
 
@@ -46,7 +57,12 @@ def build_donut_poster(input_dir, output_path, resolution=6000):
         base_img[:, i, :] = frame_array[i]
 
     # Resize to final resolution x radius
-    base_img_resized = cv2.resize(base_img, (resolution, resolution // 2), interpolation=cv2.INTER_LINEAR)
+    # Use area downsampling when shrinking to reduce aliasing.
+    if base_img.shape[1] > resolution:
+        interp = cv2.INTER_AREA
+    else:
+        interp = cv2.INTER_CUBIC
+    base_img_resized = cv2.resize(base_img, (resolution, resolution // 2), interpolation=interp)
 
     # Warp to polar coordinates (full circle)
     print("[>] Transforming to circular donut poster...")
@@ -63,10 +79,11 @@ def build_donut_poster(input_dir, output_path, resolution=6000):
 
     # Save result
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    cv2.imwrite(output_path, donut_rotated)
+    cv2.imwrite(output_path, donut_rotated, [cv2.IMWRITE_PNG_COMPRESSION, 1])
     print(f"[✓] Saved donut poster: {output_path}")
 
 def main():
+    args = parse_args()
     # List available movies
     movies = list_movie_folders(CIRCLE_ROOT)
     if not movies:
@@ -88,7 +105,8 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "circle_donut_poster.png")
 
-    build_donut_poster(input_dir, output_path, RESOLUTION)
+    resolution = HQ_RESOLUTION if args.poster_mode else QUICK_RESOLUTION
+    build_donut_poster(input_dir, output_path, resolution)
 
 if __name__ == "__main__":
     main()
