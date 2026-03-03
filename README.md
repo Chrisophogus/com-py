@@ -194,3 +194,4 @@ Log entries include:
 ## Attribution
 
 Concept inspired by [The Colours of Motion](https://thecolorsofmotion.com/).
+Poster style reference inspired by [TheOzoneLab](https://www.etsy.com/shop/theozonelab/).
