@@ -8,6 +8,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -28,6 +29,15 @@ DARK_THEME = {
     "frame_outer": (236, 236, 232),
     "frame_inner": (25, 27, 31),
 }
+
+# Dot strip layout knobs (poster-relative where noted).
+DOTSTRIP_Y_ABOVE_COLORBAR_RATIO = 0.055
+DOTSTRIP_DX_RATIO = 0.006
+DOTSTRIP_ROW_GAP_RATIO = 0.010
+DOTSTRIP_RADIUS_RATIO = 0.0022
+DOTSTRIP_GAP_MULT = 2.8
+DOTSTRIP_PADDING_PX = 6
+DOTSTRIP_EXTRA_DX_PX = 4.0
 
 
 def parse_args():
@@ -124,6 +134,96 @@ def load_dotenv(path=".env"):
                 value = value[1:-1]
             if key and key not in os.environ:
                 os.environ[key] = value
+
+
+def to_bits(n: int) -> str:
+    if not isinstance(n, int):
+        raise TypeError("to_bits expects int")
+    if n < 0:
+        raise ValueError("to_bits expects non-negative int")
+    return format(n, "b")
+
+
+def build_stream(a: int, b: int) -> str:
+    if not isinstance(a, int) or not isinstance(b, int):
+        raise TypeError("build_stream expects integer inputs")
+    if a < 0 or b < 0:
+        raise ValueError("build_stream expects non-negative integers")
+
+    bits_a = to_bits(a)
+    bits_b = to_bits(b)
+    if len(bits_a) > 255 or len(bits_b) > 255:
+        raise ValueError("Value requires >255 bits; cannot encode with 8-bit length header.")
+
+    len_a = format(len(bits_a), "08b")
+    len_b = format(len(bits_b), "08b")
+    return f"{len_a}{bits_a}|{len_b}{bits_b}"
+
+
+def stream_to_dots(
+    stream: str,
+    x0: float,
+    dx: float,
+    y_top: float,
+    y_bottom: float,
+    gap_mult: float,
+) -> List[Tuple[float, float]]:
+    if dx <= 0:
+        raise ValueError("dx must be > 0")
+    if gap_mult <= 0:
+        raise ValueError("gap_mult must be > 0")
+
+    dots: List[Tuple[float, float]] = []
+    x = float(x0)
+    for ch in stream:
+        if ch == "1":
+            dots.append((x, y_top))
+            x += dx
+        elif ch == "0":
+            dots.append((x, y_bottom))
+            x += dx
+        elif ch == "|":
+            x += dx * gap_mult
+        else:
+            raise ValueError(f"Invalid stream character: {ch!r}")
+    return dots
+
+
+def render_dotstrip_png(
+    stream: str,
+    output_path: Path,
+    dot_radius: int,
+    dx: float,
+    row_gap: float,
+    gap_mult: float,
+    dot_color: Tuple[int, int, int, int] = (0, 0, 0, 255),
+    padding: int = DOTSTRIP_PADDING_PX,
+) -> Path:
+    y_top = padding + dot_radius
+    y_bottom = y_top + row_gap
+    x0 = padding + dot_radius
+    dots = stream_to_dots(stream, x0=x0, dx=dx, y_top=y_top, y_bottom=y_bottom, gap_mult=gap_mult)
+
+    x = x0
+    for ch in stream:
+        if ch in ("0", "1"):
+            x += dx
+        else:
+            x += dx * gap_mult
+    width = int(math.ceil(x + dot_radius + padding))
+    height = int(math.ceil(y_bottom + dot_radius + padding))
+
+    img = Image.new("RGBA", (max(1, width), max(1, height)), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    for px, py in dots:
+        draw.ellipse(
+            (px - dot_radius, py - dot_radius, px + dot_radius, py + dot_radius),
+            fill=dot_color,
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(output_path, "PNG", optimize=False, compress_level=1)
+    return output_path
 
 
 def parse_film_hint(input_path):
@@ -625,7 +725,7 @@ def add_paper_grain(img):
     return grain
 
 
-def draw_poster(circle_img, output_path, palette, title, subtitle, meta_row, width, height):
+def draw_poster(circle_img, output_path, palette, title, subtitle, meta_row, dotstrip_asset_path, width, height):
     img = Image.new("RGB", (width, height), palette["bg"])
     draw = ImageDraw.Draw(img)
 
@@ -674,8 +774,8 @@ def draw_poster(circle_img, output_path, palette, title, subtitle, meta_row, wid
     strip = sample_ring_strip(circle_img, content_w, strip_h)
     img.paste(strip, (left, strip_y))
 
-    # Bottom dots row is explicitly anchored above the strip.
-    dots_y = strip_y - int(height * 0.055)
+    # Dot strip is anchored above the bottom color bar.
+    dots_y = strip_y - int(height * DOTSTRIP_Y_ABOVE_COLORBAR_RATIO)
 
     subtitle_top_gap = int(height * 0.014)
     subtitle_bottom_limit = dots_y - int(height * 0.030)
@@ -725,14 +825,13 @@ def draw_poster(circle_img, output_path, palette, title, subtitle, meta_row, wid
         draw.text((width / 2 - (sb[2] - sb[0]) / 2, sub_y), line, fill=palette["muted"], font=chosen_font)
         sub_y += chosen_line_h
 
-    # Dot-code style decoration.
-    dots_x = width // 2 - int(width * 0.085)
-    dot_y = dots_y
-    for i in range(18):
-        r = int(width * 0.003) if i % 3 else int(width * 0.004)
-        dx = dots_x + i * int(width * 0.012)
-        dy = dot_y + (0 if i % 2 else int(height * 0.006))
-        draw.ellipse((dx, dy, dx + r * 2, dy + r * 2), fill=palette["fg"])
+    # Dot strip asset is pre-rendered and composited here.
+    dotstrip_path = dotstrip_asset_path
+    if dotstrip_path.exists():
+        dotstrip = Image.open(dotstrip_path).convert("RGBA")
+        dots_x = width // 2 - dotstrip.width // 2
+        dots_y_top = dots_y - dotstrip.height // 2
+        img.paste(dotstrip, (dots_x, dots_y_top), dotstrip)
 
     # Subtle paper grain for print-like finish.
     img = add_paper_grain(img)
@@ -770,6 +869,37 @@ def main():
         print(f"[✓] Metadata-only run complete: {metadata_path}")
         return
 
+    # Determine A from actual processed frame list used by this film.
+    hint = parse_film_hint(input_path)
+    data_json = Path("frames") / hint["folder"] / "data.json"
+    frames_processed = 0
+    if data_json.exists():
+        with data_json.open("r", encoding="utf-8") as f:
+            frame_data = json.load(f)
+        if isinstance(frame_data, list):
+            frames_processed = len(frame_data)
+    if frames_processed <= 0:
+        frame_dir = Path("frames") / hint["folder"]
+        if frame_dir.exists():
+            frame_files = [
+                p for p in frame_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"}
+            ]
+            frames_processed = len(frame_files)
+    if frames_processed <= 0:
+        raise RuntimeError(f"Could not determine frames_processed for {hint['folder']}")
+
+    runtime_min = metadata.get("runtime_min")
+    # Keep B predictable: if runtime is missing, encode as 0.
+    runtime_seconds = int(runtime_min * 60) if isinstance(runtime_min, (int, float)) and runtime_min >= 0 else 0
+    if runtime_seconds < 0:
+        raise ValueError("runtime_seconds must be non-negative")
+
+    stream = build_stream(frames_processed, runtime_seconds)
+    dot_radius = max(2, int(round(args.width * DOTSTRIP_RADIUS_RATIO)))
+    dx = max(8.0, args.width * DOTSTRIP_DX_RATIO) + DOTSTRIP_EXTRA_DX_PX
+    row_gap = max(6.0, args.height * DOTSTRIP_ROW_GAP_RATIO)
+
     circle = Image.open(input_path).convert("RGB")
     headline = (args.title or metadata.get("headline") or metadata.get("title") or DEFAULT_HEADLINE).upper()
     summary = args.subtitle or metadata.get("summary") or DEFAULT_SUMMARY
@@ -780,10 +910,24 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         if "dark" in target.name.lower():
             palette = DARK_THEME
-        elif "light" in target.name.lower():
-            palette = LIGHT_THEME
+            dot_color = (255, 255, 255, 255)
+            dotstrip_path = input_path.parent / "dotstrip_dark.png"
         else:
-            palette = LIGHT_THEME if args.theme != "dark" else DARK_THEME
+            palette = LIGHT_THEME
+            dot_color = (0, 0, 0, 255)
+            dotstrip_path = input_path.parent / "dotstrip_light.png"
+
+        render_dotstrip_png(
+            stream=stream,
+            output_path=dotstrip_path,
+            dot_radius=dot_radius,
+            dx=dx,
+            row_gap=row_gap,
+            gap_mult=DOTSTRIP_GAP_MULT,
+            dot_color=dot_color,
+            padding=DOTSTRIP_PADDING_PX,
+        )
+
         draw_poster(
             circle_img=circle,
             output_path=target,
@@ -791,6 +935,7 @@ def main():
             title=headline,
             subtitle=summary,
             meta_row=meta_row,
+            dotstrip_asset_path=dotstrip_path,
             width=args.width,
             height=args.height,
         )
