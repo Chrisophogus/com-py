@@ -12,6 +12,8 @@ For each film folder, the pipeline can generate:
 - `radial_hq.png`
 - `circle_full.png`
 - `circle_donut_poster.png` (only if `circle_data/<film>/strip_*.png` exists)
+- `shot_palette_strip.png`
+- `shot_palettes.json`
 - `circle_full_ozonelab_light.png`
 - `circle_full_ozonelab_dark.png`
 - `dotstrip_light.png`
@@ -21,6 +23,8 @@ For each film folder, the pipeline can generate:
 
 - `colours_of_motion_processing.py`
   - interactive source processing (frame extraction + metadata / strip extraction)
+- `colours_of_motion_processing_experimental.py`
+  - experimental 1 fps processing that writes to `_experimental` folders
 - `colours_of_motion_radial.py`
   - builds `linear_hq.png` and `radial_hq.png`
 - `colours_of_motion_vertical.py`
@@ -29,6 +33,8 @@ For each film folder, the pipeline can generate:
   - builds `circle_full.png` from `frames/<film>/data.json`
 - `colours_of_motion_donut.py`
   - builds `circle_donut_poster.png` from `circle_data/<film>/strip_*.png`
+- `colours_of_motion_shots.py`
+  - detects shot boundaries and writes `shot_palettes.json` plus `shot_palette_strip.png`
 - `ozonelab_style.py`
   - builds final light/dark posters with TMDB-backed metadata and encoded dot strips
 
@@ -96,6 +102,20 @@ Run the generation scripts (interactive):
 
 ```bash
 .venv/bin/python ozonelab_style.py --input "outputs/Aliens (1986) - tt0090605/circle_full.png" --theme both
+```
+
+### D) Optional shot palette analysis
+
+```bash
+.venv/bin/python colours_of_motion_shots.py --folder "Aliens (1986) - tt0090605"
+```
+
+### E) Optional experimental extraction
+
+This writes to suffixed folders such as `frames/<film>_experimental` so the main dataset stays untouched.
+
+```bash
+.venv/bin/python colours_of_motion_processing_experimental.py
 ```
 
 ## Ozonelab Metadata Model
