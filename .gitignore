@@ -75,6 +75,7 @@ archive/
 # Local environment config
 .env
 .env.local
+.codex/
 
 # Runtime logs
 logs/
