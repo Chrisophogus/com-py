@@ -247,8 +247,11 @@ def format_release_date(date_str):
     core = date_str[:10]
     if len(core) != 10 or core[4] != "-" or core[7] != "-":
         return ""
-    yyyy, mm, dd = core.split("-")
-    return f"{dd}.{mm}.{yyyy}"
+    try:
+        parsed = datetime.strptime(core, "%Y-%m-%d")
+    except ValueError:
+        return ""
+    return parsed.strftime("%d.%m.%Y")
 
 
 def tmdb_log(log_path, event, payload):
@@ -403,13 +406,18 @@ def build_metadata_from_tmdb(hint, details):
     summary = overview
     genres = details.get("genres") or []
     category = "DOCUMENTARY" if any((g.get("name") or "").lower() == "documentary" for g in genres) else "MOTION PICTURE"
+    year = hint.get("year")
+    for candidate in (release_date_raw, details.get("release_date")):
+        if format_release_date(str(candidate or "")):
+            year = int(str(candidate)[:4])
+            break
 
     return {
         "source": "tmdb",
         "tmdb_id": details.get("id"),
         "imdb_id": (details.get("external_ids") or {}).get("imdb_id") or hint.get("imdb_id"),
         "title": title,
-        "year": hint.get("year"),
+        "year": year,
         "schema_version": SCHEMA_VERSION,
         "release_date": release_date_raw,
         "runtime_min": runtime,
@@ -588,6 +596,9 @@ def resolve_metadata(args, input_path):
             )
             if details:
                 metadata = build_metadata_from_tmdb(hint, details)
+            elif existing is not None:
+                print(f"[!] TMDB returned no match, keeping existing metadata for {film_key}.")
+                metadata = normalize_metadata_entry(existing, hint)
         except Exception as exc:
             if existing is not None:
                 print(f"[!] TMDB lookup failed, keeping existing metadata for {film_key}: {exc}")
@@ -690,14 +701,14 @@ def ring_from_circle(circle_img, diameter):
 
 
 def sample_ring_strip(circle_img, width, height):
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive.")
     arr = np.array(circle_img.convert("RGB"))
     h, w, _ = arr.shape
     cx = (w - 1) / 2.0
     cy = (h - 1) / 2.0
     outer = min(cx, cy) * 0.98
     inner = outer * 0.25
-    r0 = inner + (outer - inner) * 0.55
-
     samples = np.zeros((width, 3), dtype=np.float32)
     for x in range(width):
         angle = (x / width) * (2 * math.pi)
@@ -900,7 +911,15 @@ def output_paths(input_path, output_path, theme):
     in_path = Path(input_path)
     base = in_path.with_suffix("")
     if output_path:
-        return [Path(output_path)]
+        custom = Path(output_path)
+        if theme != "both":
+            return [custom]
+        suffix = custom.suffix or ".png"
+        stem = custom.stem if custom.suffix else custom.name
+        return [
+            custom.with_name(stem + "_light" + suffix),
+            custom.with_name(stem + "_dark" + suffix),
+        ]
     if theme == "light":
         return [base.with_name(base.name + "_ozonelab_light.png")]
     if theme == "dark":
@@ -941,6 +960,8 @@ def main():
     input_path = Path(args.input)
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
+    if args.width <= 0 or args.height <= 0:
+        raise ValueError("Poster width and height must be positive.")
 
     metadata, metadata_path = resolve_metadata(args, input_path)
     if args.metadata_only:
@@ -978,15 +999,17 @@ def main():
     dx = max(8.0, args.width * DOTSTRIP_DX_RATIO) + DOTSTRIP_EXTRA_DX_PX
     row_gap = max(6.0, args.height * DOTSTRIP_ROW_GAP_RATIO)
 
-    circle = Image.open(input_path).convert("RGB")
+    with Image.open(input_path) as source:
+        circle = source.convert("RGB")
     headline = choose_headline_text(metadata, title_override=args.title).upper()
     summary = args.subtitle or metadata.get("summary") or DEFAULT_SUMMARY
     meta_row = generate_meta_row(metadata)
 
     targets = output_paths(args.input, args.output, args.theme)
-    for target in targets:
+    target_themes = ["light", "dark"] if args.theme == "both" else [args.theme]
+    for target, target_theme in zip(targets, target_themes):
         target.parent.mkdir(parents=True, exist_ok=True)
-        if "dark" in target.name.lower():
+        if target_theme == "dark":
             palette = DARK_THEME
             dot_color = (255, 255, 255, 255)
             dotstrip_path = input_path.parent / "dotstrip_dark.png"

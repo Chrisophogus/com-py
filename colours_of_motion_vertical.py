@@ -41,12 +41,14 @@ def load_metadata(folder_path):
     data_file = os.path.join(folder_path, "data.json")
     if not os.path.exists(data_file):
         raise FileNotFoundError(f"No data.json found in {folder_path}")
-    with open(data_file, 'r') as f:
+    with open(data_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
 # === CLASSIC VERTICAL ===
 def build_vertical_classic(metadata, output_path, target_width=1600, target_height=20000):
     print("[>] Building classic vertical image...")
+    if target_width <= 0 or target_height <= 0:
+        raise ValueError("target_width and target_height must be positive.")
     colours = np.array([frame["color"] for frame in metadata], dtype=np.float32)
     n_frames = len(colours)
     if n_frames == 0:
@@ -60,13 +62,15 @@ def build_vertical_classic(metadata, output_path, target_width=1600, target_heig
         axis=1,
     ).astype(np.uint8)
     image_array = np.tile(smooth_colours[:, None, :], (1, target_width, 1))
-    image = Image.fromarray(image_array, "RGB")
+    image = Image.fromarray(image_array)
     image.save(output_path, "PNG", optimize=False, compress_level=1)
     print(f"[✓] Saved classic vertical image: {output_path}")
 
 # === CINEMATIC VERTICAL (BRIGHTNESS-BASED WIDTH) ===
 def build_vertical_cinematic(metadata, output_path, target_width=QUICK_WIDTH, target_height=QUICK_HEIGHT):
     print("[>] Building cinematic brightness-based vertical image...")
+    if target_width <= 0 or target_height <= 0:
+        raise ValueError("target_width and target_height must be positive.")
 
     # Extract brightness values
     brightness_values = [frame["brightness"] for frame in metadata]
@@ -77,15 +81,11 @@ def build_vertical_cinematic(metadata, output_path, target_width=QUICK_WIDTH, ta
     colours = [frame["color"] for frame in metadata]
     n_frames = len(colours)
 
-    # Fixed height per frame
-    stripe_height = max(1, target_height // n_frames)
-
     # Create black canvas
     image = Image.new("RGB", (target_width, target_height), "black")
     draw = ImageDraw.Draw(image)
 
-    y = 0
-    for colour, brightness in zip(colours, brightness_values):
+    for index, (colour, brightness) in enumerate(zip(colours, brightness_values)):
         # Map brightness to stripe width
         norm_b = (brightness - min_b) / (max_b - min_b + 1e-5)
         stripe_width = int(MIN_WIDTH_RATIO * target_width + norm_b * (MAX_WIDTH_RATIO - MIN_WIDTH_RATIO) * target_width)
@@ -93,10 +93,10 @@ def build_vertical_cinematic(metadata, output_path, target_width=QUICK_WIDTH, ta
         x1 = (target_width - stripe_width) // 2
         x2 = x1 + stripe_width
 
-        draw.rectangle([x1, y, x2, y + stripe_height], fill=tuple(map(int, colour)))
-        y += stripe_height
-        if y >= target_height:
-            break
+        y1 = round((index / n_frames) * target_height)
+        y2 = round(((index + 1) / n_frames) * target_height) - 1
+        if y2 >= y1:
+            draw.rectangle([x1, y1, x2, y2], fill=tuple(map(int, colour)))
 
     # Feather edges
     blurred = image.filter(ImageFilter.GaussianBlur(radius=FEATHER_RADIUS))

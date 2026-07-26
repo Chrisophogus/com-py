@@ -21,7 +21,7 @@ def parse_args():
 
 def select_folder(root):
     """List available subfolders and let user select one."""
-    folders = [f for f in os.listdir(root) if os.path.isdir(os.path.join(root, f))]
+    folders = sorted(f for f in os.listdir(root) if os.path.isdir(os.path.join(root, f)))
     if not folders:
         print("No processed folders found.")
         return None
@@ -45,7 +45,14 @@ def build_circle_image(
     supersample=SUPERSAMPLE,
 ):
     """Create a full circular image based on frame colours."""
-    with open(metadata_path, 'r') as f:
+    if resolution <= 0:
+        raise ValueError("resolution must be positive.")
+    if supersample < 1:
+        raise ValueError("supersample must be at least 1.")
+    if not 0 <= inner_radius_ratio < 1:
+        raise ValueError("inner_radius_ratio must be between 0 inclusive and 1 exclusive.")
+
+    with open(metadata_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     
     colours = [tuple(frame["color"]) for frame in data]
@@ -80,6 +87,7 @@ def build_circle_image(
 
     img.save(output_path, "PNG", optimize=False, compress_level=1)
     print(f"[✓] Saved full circle image: {output_path}")
+    return output_path
 
 def main():
     args = parse_args()

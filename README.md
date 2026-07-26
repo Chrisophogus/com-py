@@ -47,6 +47,9 @@ com-py/
 ├── outputs/<film>/               # all rendered assets
 ├── metadata/poster_metadata.json # shared metadata catalog for all films
 ├── logs/tmdb_run_*.jsonl         # per-run TMDB request/response logs
+├── tests/                         # standard-library unit tests
+├── check_repository.py           # source, data, media and Git integrity checks
+├── requirements.txt              # Python runtime dependencies
 ├── .env                          # local secrets (ignored)
 └── *.py                          # generation scripts
 ```
@@ -55,10 +58,12 @@ com-py/
 
 ### 1) Dependencies
 
+Use Python 3.11 or newer.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pillow numpy opencv-python
+pip install -r requirements.txt
 ```
 
 Install `ffmpeg` (required for extraction scripts):
@@ -103,6 +108,8 @@ Run the generation scripts (interactive):
 ```bash
 .venv/bin/python ozonelab_style.py --input "outputs/Aliens (1986) - tt0090605/circle_full.png" --theme both
 ```
+
+When `--output` is supplied with `--theme both`, the script adds `_light` and `_dark` to the requested filename. A single theme writes exactly to the requested path.
 
 ### D) Optional shot palette analysis
 
@@ -183,10 +190,32 @@ Every run writes a per-run log:
 
 Log entries include:
 
-- request path + params (sanitized)
+- request path + params (sanitised)
 - auth mode (`api_key` or `bearer`)
 - full response payload on success
 - structured HTTP / network errors
+
+## Tests and Checks
+
+Run the unit tests:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Check all tracked files plus new files that are not ignored:
+
+```bash
+.venv/bin/python check_repository.py
+```
+
+For a deeper local audit, include ignored runtime data and archives as well:
+
+```bash
+.venv/bin/python check_repository.py --all
+```
+
+The checker validates Python syntax, JSON and JSONL parsing, image integrity, archived video readability, pickle structure, TOML, Git object integrity and the active virtual environment. It deliberately excludes the contents of `.git`, `.venv` and `__pycache__`; those are covered through `git fsck` and `pip check` instead.
 
 ## Troubleshooting
 

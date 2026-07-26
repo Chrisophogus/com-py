@@ -1,15 +1,21 @@
 import os
-import subprocess
 import json
 import argparse
 import numpy as np
 import cv2
+
+from colours_of_motion_processing import (
+    extract_frames as extract_frames_safely,
+    has_contiguous_numbered_outputs,
+    numbered_output_paths,
+)
 
 # === CONFIGURATION ===
 FPS = 0.1
 PROCESSED_FILE = "processed_files.json"
 FRAME_ROOT = "frames"
 OUTPUT_ROOT = "outputs"
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png")
 
 # Poster mode defaults
 POSTER_RESOLUTION = 5000  # High-quality radial
@@ -19,34 +25,34 @@ HQ_LINE_HEIGHT = 600
 QUICK_STRIPE_WIDTH = 2
 HQ_STRIPE_WIDTH = 4
 
+
+def source_matches_last_video(processed, video_path, folder_name):
+    if processed.get(video_path) == folder_name:
+        return True
+    last_video = processed.get("last_video", {})
+    stored_path = last_video.get("path")
+    return bool(stored_path) and (
+        os.path.realpath(os.path.expanduser(stored_path))
+        == os.path.realpath(os.path.expanduser(video_path))
+        and last_video.get("folder") == folder_name
+    )
+
+
+def valid_folder_name(folder_name):
+    return bool(folder_name) and folder_name not in {".", ".."} and os.path.basename(folder_name) == folder_name
+
 # === FRAME EXTRACTION ===
 def extract_frames(video_path, frame_dir, fps=FPS):
     """Extracts HDR frames with tone mapping using ffmpeg."""
-    os.makedirs(frame_dir, exist_ok=True)
-    cmd = [
-        "ffmpeg", "-an", "-sn", "-i", video_path,
-        "-vf", (
-            f"fps={fps},"
-            "zscale=t=linear:npl=100,"
-            "format=gbrpf32le,"
-            "zscale=p=bt709,"
-            "tonemap=hable,"
-            "zscale=t=bt709,"
-            "format=yuv420p"
-        ),
-        "-q:v", "1", "-vsync", "0", "-frame_pts", "1", "-fps_mode", "vfr",
-        "-loglevel", "warning", "-hide_banner", "-stats",
-        os.path.join(frame_dir, "frame_%04d.jpg")
-    ]
-    print(f"[>] Extracting frames with tone mapping:\n{' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-    print("[✓] HDR tone-mapped frame extraction complete.")
+    extract_frames_safely(video_path, frame_dir, fps)
 
 def build_horizontal_timeline(frame_dir, output_path, line_height=HQ_LINE_HEIGHT, stripe_width=HQ_STRIPE_WIDTH):
     """Build a horizontal average-colour timeline from extracted frames."""
+    if line_height <= 0 or stripe_width <= 0:
+        raise ValueError("line_height and stripe_width must be positive.")
     frame_files = sorted(
         f for f in os.listdir(frame_dir)
-        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        if f.lower().endswith(IMAGE_SUFFIXES)
     )
     if not frame_files:
         raise ValueError("No frame images found to build horizontal timeline.")
@@ -71,12 +77,15 @@ def build_horizontal_timeline(frame_dir, output_path, line_height=HQ_LINE_HEIGHT
         end_x = start_x + stripe_width
         timeline[:, start_x:end_x] = colour
 
-    cv2.imwrite(output_path, timeline)
+    if not cv2.imwrite(output_path, timeline):
+        raise OSError(f"Could not write horizontal timeline: {output_path}")
     print(f"[✓] Saved horizontal timeline: {output_path}")
 
 # === RADIAL IMAGE BUILDER ===
 def build_radial_image(image_path, output_path, resolution=3000):
     print("[>] Building radial image...")
+    if resolution < 2:
+        raise ValueError("resolution must be at least 2 pixels.")
     src = cv2.imread(image_path)
     if src is None:
         raise ValueError(f"Could not read image: {image_path}")
@@ -95,18 +104,19 @@ def build_radial_image(image_path, output_path, resolution=3000):
     src_x = np.clip((norm_dist * (src.shape[1] - 1)).astype(np.int32), 0, src.shape[1] - 1)
     result = src[src_mid_y, src_x]
 
-    cv2.imwrite(output_path, result)
+    if not cv2.imwrite(output_path, result):
+        raise OSError(f"Could not write radial image: {output_path}")
     print(f"[✓] Saved radial image: {output_path}")
 
 # === TRACKING PROCESSED FILES ===
 def load_processed():
     if os.path.exists(PROCESSED_FILE):
-        with open(PROCESSED_FILE, 'r') as f:
+        with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 def save_processed(data):
-    with open(PROCESSED_FILE, 'w') as f:
+    with open(PROCESSED_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 # === MAIN ===
@@ -139,10 +149,14 @@ def main():
         folder_name = last_folder
     else:
         video_path = input("Enter full path to video file: ").strip()
-        if not os.path.exists(video_path):
-            print("[✗] Video not found.")
-            return
         folder_name = input("Enter folder name (e.g. 'Aliens (1986) - tt0090605'): ").strip()
+
+    if not os.path.isfile(video_path):
+        print("[✗] Video not found.")
+        return
+    if not valid_folder_name(folder_name):
+        print("[✗] Folder name must be a single non-empty directory name.")
+        return
 
     frame_dir = os.path.join(FRAME_ROOT, folder_name)
     output_dir = os.path.join(OUTPUT_ROOT, folder_name)
@@ -156,28 +170,27 @@ def main():
     line_height = HQ_LINE_HEIGHT if poster_mode else QUICK_LINE_HEIGHT
     stripe_width = HQ_STRIPE_WIDTH if poster_mode else QUICK_STRIPE_WIDTH
 
-    already_processed = False
-    if processed.get(video_path) == folder_name:
-        already_processed = True
-    elif processed.get("last_video", {}).get("path") == video_path and processed.get("last_video", {}).get("folder") == folder_name:
-        already_processed = True
+    frame_paths = numbered_output_paths(frame_dir, "frame_", IMAGE_SUFFIXES)
+    complete_frames = has_contiguous_numbered_outputs(frame_dir, "frame_", IMAGE_SUFFIXES)
+    already_processed = source_matches_last_video(processed, video_path, folder_name) and complete_frames
     if already_processed:
         print("[!] Video previously processed – skipping frame extraction.")
+    elif frame_paths:
+        print("[✗] Existing frames are incomplete or do not match the selected source. Use a new folder or remove the stale generated frames.")
+        return
     else:
         extract_frames(video_path, frame_dir, FPS)
         processed[video_path] = folder_name
         processed["last_video"] = {"path": video_path, "folder": folder_name}
         save_processed(processed)
 
-    # Use existing horizontal timeline or build one from extracted frames.
+    # Rebuild the derived timeline so quick and poster modes cannot reuse each other's dimensions.
     horizontal_path = os.path.join(output_dir, "linear_hq.png")
-    if not os.path.exists(horizontal_path):
-        print("[!] No horizontal timeline found. Building linear_hq.png from frame averages.")
-        try:
-            build_horizontal_timeline(frame_dir, horizontal_path, line_height, stripe_width)
-        except ValueError as e:
-            print(f"[✗] {e}")
-            return
+    try:
+        build_horizontal_timeline(frame_dir, horizontal_path, line_height, stripe_width)
+    except (OSError, ValueError) as exc:
+        print(f"[✗] {exc}")
+        return
 
     radial_out = os.path.join(output_dir, "radial_hq.png")
     build_radial_image(horizontal_path, radial_out, resolution)

@@ -59,6 +59,10 @@ def list_folders(base_path):
     )
 
 
+def valid_folder_name(folder_name):
+    return bool(folder_name) and folder_name not in {".", ".."} and Path(folder_name).name == folder_name
+
+
 def select_folder(base_path):
     folders = list_folders(base_path)
     if not folders:
@@ -95,13 +99,46 @@ def calc_hist_bhattacharyya(image_bgr, bins):
     return hist
 
 
+def merge_short_boundaries(boundaries, total_frames, min_shot_len):
+    segments = [
+        [boundaries[index], boundaries[index + 1]]
+        for index in range(len(boundaries) - 1)
+    ]
+    index = 0
+    while len(segments) > 1 and index < len(segments):
+        start, end = segments[index]
+        if end - start >= min_shot_len:
+            index += 1
+            continue
+        if index == 0:
+            segments[1][0] = start
+            segments.pop(0)
+        else:
+            segments[index - 1][1] = end
+            segments.pop(index)
+            index -= 1
+
+    merged = [segments[0][0]] if segments else [0]
+    merged.extend(segment[1] for segment in segments)
+    if merged[-1] != total_frames:
+        merged[-1] = total_frames
+    return merged
+
+
 def detect_shot_boundaries(frame_paths, threshold=0.38, min_shot_len=6, hist_bins=8):
+    if not 0 <= threshold <= 1:
+        raise ValueError("threshold must be between 0 and 1.")
+    if min_shot_len < 1:
+        raise ValueError("min_shot_len must be at least 1.")
+    if hist_bins < 1:
+        raise ValueError("hist_bins must be at least 1.")
+
     hists = []
     avg_cols = []
     for path in frame_paths:
         frame = cv2.imread(str(path))
         if frame is None:
-            continue
+            raise ValueError(f"Could not read frame: {path}")
         hists.append(calc_hist_bhattacharyya(frame, hist_bins))
         avg_cols.append(frame.mean(axis=(0, 1))[::-1])  # RGB
 
@@ -118,14 +155,7 @@ def detect_shot_boundaries(frame_paths, threshold=0.38, min_shot_len=6, hist_bin
     if boundaries[-1] != len(hists):
         boundaries.append(len(hists))
 
-    # Merge shots shorter than min_shot_len into previous shot.
-    merged = [boundaries[0]]
-    for b in boundaries[1:]:
-        if b - merged[-1] < min_shot_len and len(merged) > 1:
-            continue
-        merged.append(b)
-    if merged[-1] != len(hists):
-        merged[-1] = len(hists)
+    merged = merge_short_boundaries(boundaries, len(hists), min_shot_len)
 
     shots = []
     for i in range(len(merged) - 1):
@@ -147,6 +177,10 @@ def detect_shot_boundaries(frame_paths, threshold=0.38, min_shot_len=6, hist_bin
 
 
 def save_shot_palette_strip(shots, output_path, width=3600, height=280):
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive.")
+    if len(shots) > width:
+        raise ValueError("width must provide at least one pixel for each shot.")
     total_frames = sum(s["frame_count"] for s in shots)
     if total_frames <= 0:
         raise ValueError("No shot frame counts available to render strip.")
@@ -170,6 +204,8 @@ def save_shot_palette_strip(shots, output_path, width=3600, height=280):
 def main():
     args = parse_args()
     folder = args.folder or select_folder(FRAME_ROOT)
+    if not valid_folder_name(folder):
+        raise ValueError("Folder must be a single non-empty directory name.")
     frame_dir = Path(FRAME_ROOT) / folder
     out_dir = Path(OUTPUT_ROOT) / folder
     out_dir.mkdir(parents=True, exist_ok=True)

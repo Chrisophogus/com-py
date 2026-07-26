@@ -1,4 +1,5 @@
 import os
+import re
 import cv2
 import numpy as np
 from PIL import Image
@@ -9,6 +10,16 @@ CIRCLE_ROOT = "circle_data"
 OUTPUT_ROOT = "outputs"
 QUICK_RESOLUTION = 4000
 HQ_RESOLUTION = 6000
+STRIP_NAME_PATTERN = re.compile(r"^strip_(\d+)\.png$", re.IGNORECASE)
+
+
+def list_strip_paths(input_dir):
+    strips = []
+    for file in os.listdir(input_dir):
+        match = STRIP_NAME_PATTERN.fullmatch(file)
+        if match:
+            strips.append((int(match.group(1)), os.path.join(input_dir, file)))
+    return [path for _, path in sorted(strips)]
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate donut poster Colours of Motion output.")
@@ -21,16 +32,16 @@ def parse_args():
 
 def list_movie_folders(base_dir):
     """List available processed movie folders."""
-    return [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+    return sorted(f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f)))
 
 def build_donut_poster(input_dir, output_path, resolution=HQ_RESOLUTION):
     """Builds a full circle 'donut poster' from 1px strips."""
     print(f"[>] Building donut poster from {input_dir}")
+    if resolution < 2:
+        raise ValueError("resolution must be at least 2 pixels.")
 
     # Collect strips
-    strips = sorted(
-        [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.png')]
-    )
+    strips = list_strip_paths(input_dir)
     if not strips:
         raise ValueError("No strip images found in folder!")
 
@@ -38,9 +49,16 @@ def build_donut_poster(input_dir, output_path, resolution=HQ_RESOLUTION):
 
     # Load strips into a list
     frames = []
+    strip_height = None
     for i, file in enumerate(strips, 1):
-        img = Image.open(file).convert('RGB')
-        np_img = np.array(img)
+        with Image.open(file) as source:
+            np_img = np.array(source.convert("RGB"))
+        if np_img.shape[1] < 1:
+            raise ValueError(f"Strip has no colour column: {file}")
+        if strip_height is None:
+            strip_height = np_img.shape[0]
+        elif np_img.shape[0] != strip_height:
+            raise ValueError(f"Strip height does not match earlier files: {file}")
         frames.append(np_img[:, 0, :])  # Extract color column
         if i % 1000 == 0:
             print(f"  Loaded {i} strips...")
@@ -78,9 +96,13 @@ def build_donut_poster(input_dir, output_path, resolution=HQ_RESOLUTION):
     donut_rotated = np.rot90(donut, k=3)
 
     # Save result
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    cv2.imwrite(output_path, donut_rotated, [cv2.IMWRITE_PNG_COMPRESSION, 1])
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    if not cv2.imwrite(output_path, donut_rotated, [cv2.IMWRITE_PNG_COMPRESSION, 1]):
+        raise OSError(f"Could not write donut poster: {output_path}")
     print(f"[✓] Saved donut poster: {output_path}")
+    return output_path
 
 def main():
     args = parse_args()

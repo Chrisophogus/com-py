@@ -73,9 +73,14 @@ frames/*
 archive/
 
 # Local environment config
+.venv/
 .env
 .env.local
 .codex/
 
 # Runtime logs
 logs/
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json
